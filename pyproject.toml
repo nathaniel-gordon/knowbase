@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enterprise-kb-rag"
+version = "2.0.0"
+description = "Hexagonal enterprise knowledge-base RAG: JSON microservice + typed client SDK"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy", "scikit-learn"]
+
+[project.optional-dependencies]
+llm = ["anthropic"]
+dev = ["pytest"]
+
+[project.scripts]
+kb = "kb.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+filterwarnings = ["error::DeprecationWarning:kb.*"]

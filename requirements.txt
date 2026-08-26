@@ -1,0 +1,4 @@
+numpy
+scikit-learn
+pytest
+anthropic  # optional: enables the Claude generator adapter; the service runs fully without it
