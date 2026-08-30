@@ -19,7 +19,8 @@ USAGE = "usage: python -m knowbase {demo|serve} [options]   (try 'demo --help' o
 def _serve(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(prog="knowbase serve",
                                      description="Run the knowledge-base JSON service.")
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="bind address; anything but loopback requires KB_API_TOKEN")
     parser.add_argument("--port", type=int, default=0, help="0 = ephemeral port chosen by the OS")
     parser.add_argument("--index", default="hybrid_rrf", help="IndexPort adapter to bind")
     parser.add_argument("--generator", default="claude",
@@ -34,6 +35,8 @@ def _serve(argv: Sequence[str]) -> int:
                              "(default: the working directory)")
     parser.add_argument("--sqlite-path", default=":memory:",
                         help="service database for the answer cache and the corpus store")
+    parser.add_argument("--log-level", default="INFO",
+                        help="structured-log level on stderr (DEBUG/INFO/WARNING/ERROR)")
     parser.add_argument("--config", help="path to a JSON AppConfig file (overrides the flags)")
     args = parser.parse_args(list(argv))
     config = (AppConfig.from_json_file(args.config) if args.config
@@ -42,7 +45,7 @@ def _serve(argv: Sequence[str]) -> int:
                              cache_ttl_s=args.cache_ttl,
                              sqlite_path=args.sqlite_path,
                              corpus_roots=tuple(args.corpus_root)))
-    serve_forever(config, host=args.host, port=args.port)
+    serve_forever(config, host=args.host, port=args.port, log_level=args.log_level)
     return 0
 
 

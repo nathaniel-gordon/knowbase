@@ -183,7 +183,7 @@ def test_generator_and_cache_can_be_hot_swapped(fresh_client, demo_corpus_dir):
 
 def test_unknown_route_is_404(fresh_client):
     with pytest.raises(ServiceError) as excinfo:
-        fresh_client._request("GET", "/nope")
+        fresh_client._request("GET", "/api/v1/nope")
     assert excinfo.value.status == 404
     assert excinfo.value.code == "no_such_endpoint"
     assert "/health" in excinfo.value.details["routes"]
@@ -231,7 +231,7 @@ def test_missing_source_path_inside_a_root_is_rejected(fresh_client, tmp_path):
 
 
 def test_malformed_json_body_is_rejected(fresh_client):
-    request = urllib.request.Request(f"{fresh_client.base_url}/ask", data=b"{not json",
+    request = urllib.request.Request(f"{fresh_client.base_url}/api/v1/ask", data=b"{not json",
                                      method="POST",
                                      headers={"Content-Type": "application/json"})
     with pytest.raises(urllib.error.HTTPError) as excinfo:

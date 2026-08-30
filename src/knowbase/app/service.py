@@ -1,32 +1,40 @@
 """The primary (driving) adapter: a stdlib JSON microservice over the use-cases.
 
-HTTP is deliberately a thin shell -- parse, validate, delegate to a use-case, map the result to
-JSON. All knowledge-base behaviour lives inside the hexagon, which is why the same logic is
-reachable from the tests without a socket.
+HTTP is deliberately a thin shell -- authenticate, parse, validate, delegate to a use-case, map
+the result to JSON. All knowledge-base behaviour lives inside the hexagon, which is why the
+same logic is reachable from the tests without a socket.
 
-Nothing is coerced in a handler any more: a request body becomes a typed object in
-``validation.py`` or it becomes a 400. Errors on the wire are ``{"error": {"code", "message",
-"details"}}`` with a stable code; the Python exception type is never part of the response.
+Nothing is coerced in a handler: a request body becomes a typed object in ``validation.py`` or
+it becomes a 400. Errors on the wire are ``{"error": {"code", "message", "details",
+"request_id"}}`` with a stable code; the Python exception type is never part of the response.
 
-Endpoints
-    GET  /health    bound adapters, corpus size, uptime
-    GET  /adapters  every adapter registered for every port
-    POST /ingest    build the passage set and every index from a document source
-    POST /ask       cited answer for a question
-    POST /eval      retrieval metrics for the active index over a labelled suite
-    POST /compare   A/B: the same suite through several index adapters, with a winner
-    POST /config    rebind index / generator / cache at runtime
+Routes
+    GET  /                  what this service is and where its endpoints live
+    GET  /health            liveness plus the bound adapters and the corpus on hand
+    GET  /ready             readiness: 200 once a corpus is queryable, 503 before that
+    GET  /metrics           per-route counters, latency buckets, cache and corpus gauges
+    GET  /api/v1/adapters   every adapter registered for every port
+    POST /api/v1/ingest     build the passage set and every index from a document source
+    POST /api/v1/ask        cited answer for a question
+    POST /api/v1/eval       retrieval metrics over a labelled suite, bundled or your own
+    POST /api/v1/compare    A/B: the same suite through several index adapters, with a winner
+    POST /api/v1/config     rebind index / generator / cache at runtime
+
+The operational endpoints sit outside the version prefix on purpose: a probe or a scrape
+should not have to be updated when the API is versioned.
 """
 from __future__ import annotations
 
 import json
 import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Mapping
 
 from ..domain.errors import (
     AdapterUnavailable,
+    CorpusStoreUnavailable,
     DocumentSourceUnavailable,
     EmptyCorpusError,
     IndexBuildFailed,
@@ -36,8 +44,17 @@ from ..domain.errors import (
     ResourceLimitExceeded,
     ValidationError,
 )
+from .auth import Authenticator, Unauthenticated
 from .composition import Container, build_container
 from .config import AppConfig
+from .observability import (
+    Metrics,
+    configure_logging,
+    get_logger,
+    new_request_id,
+    redact,
+    request_id_var,
+)
 from .validation import RequestValidator
 from .wire import (
     answer_to_dict,
@@ -47,8 +64,10 @@ from .wire import (
     ingest_to_dict,
 )
 
+API_PREFIX = "/api/v1"
+
 #: Which HTTP status each domain error maps onto. Everything here is the client's fault
-#: except the two 5xx entries, which mean the service could not do its job.
+#: except the 5xx entries, which mean the service could not do its job.
 ERROR_STATUS: dict[type[KbError], HTTPStatus] = {
     ValidationError: HTTPStatus.BAD_REQUEST,
     IndexNotBuiltError: HTTPStatus.CONFLICT,
@@ -56,8 +75,10 @@ ERROR_STATUS: dict[type[KbError], HTTPStatus] = {
     IndexBuildFailed: HTTPStatus.BAD_REQUEST,
     DocumentSourceUnavailable: HTTPStatus.BAD_REQUEST,
     PathNotAllowed: HTTPStatus.FORBIDDEN,
+    Unauthenticated: HTTPStatus.UNAUTHORIZED,
     ResourceLimitExceeded: HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
     AdapterUnavailable: HTTPStatus.SERVICE_UNAVAILABLE,
+    CorpusStoreUnavailable: HTTPStatus.SERVICE_UNAVAILABLE,
 }
 
 
@@ -69,14 +90,17 @@ def status_for(error: KbError) -> HTTPStatus:
 
 
 class KbHTTPServer(ThreadingHTTPServer):
-    """Threading server that carries the container the handlers delegate to."""
+    """Threading server carrying the container, the validator, the auth check and the metrics."""
 
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address: tuple[str, int], container: Container) -> None:
+    def __init__(self, address: tuple[str, int], container: Container,
+                 auth: Authenticator | None = None) -> None:
         self.container = container
         self.validator = RequestValidator(container.limits)
+        self.auth = auth or Authenticator()
+        self.metrics = Metrics()
         self._lock = threading.Lock()
         super().__init__(address, KbRequestHandler)
 
@@ -97,10 +121,13 @@ class KbRequestHandler(BaseHTTPRequestHandler):
     server_version = "knowbase/0.1"
     protocol_version = "HTTP/1.1"
 
+    #: Endpoints a probe must be able to reach without a credential.
+    OPEN_ROUTES = frozenset({"/", "/health", "/ready"})
+
     # ------------------------------------------------------------- plumbing
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        """Silence the stdlib access line; structured logging replaces it."""
+        """Suppress the stdlib access line; the structured line in ``_dispatch`` replaces it."""
 
     @property
     def container(self) -> Container:
@@ -121,12 +148,14 @@ class KbRequestHandler(BaseHTTPRequestHandler):
         self.send_response(int(status))
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Request-Id", request_id_var.get())
         self.end_headers()
         self.wfile.write(body)
 
     def _send_error(self, status: HTTPStatus | int, code: str, message: str,
                     details: Mapping[str, Any] | None = None) -> None:
-        error: dict[str, Any] = {"code": code, "message": message}
+        error: dict[str, Any] = {"code": code, "message": message,
+                                 "request_id": request_id_var.get()}
         if details:
             error["details"] = dict(details)
         self._send(status, {"error": error})
@@ -164,37 +193,72 @@ class KbRequestHandler(BaseHTTPRequestHandler):
             raise ValidationError("body must be a JSON object", got=type(body).__name__)
         return body
 
-    def _dispatch(self, routes: Mapping[str, Callable[[dict[str, Any]], Mapping[str, Any]]],
-                  body: dict[str, Any] | None = None) -> None:
-        path = self.path.split("?", 1)[0].rstrip("/") or "/"
-        handler = routes.get(path)
-        if handler is None:
-            self._send_error(HTTPStatus.NOT_FOUND, "no_such_endpoint",
-                             f"no such endpoint: {path}", {"routes": sorted(routes)})
-            return
-        try:
-            self._send(HTTPStatus.OK, handler(body if body is not None else {}))
-        except KbError as exc:
-            self._send_error(status_for(exc), exc.code, exc.message, exc.details)
-        except Exception:  # noqa: BLE001 - nothing internal is allowed onto the wire
-            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error",
-                             "the service failed to handle this request")
+    # --------------------------------------------------------------- routing
 
-    # --------------------------------------------------------------- routes
+    def _dispatch(self, routes: Mapping[str, Callable[..., Mapping[str, Any]]],
+                  method: str) -> None:
+        """One place where a request becomes a status, a log line and a metric."""
+        request_id_var.set(new_request_id())
+        started = time.perf_counter()
+        path = self.path.split("?", 1)[0].rstrip("/") or "/"
+        status = HTTPStatus.OK
+        facts: dict[str, Any] = {}
+        try:
+            handler = routes.get(path)
+            if handler is None:
+                raise _NoSuchEndpoint(path, sorted(routes))
+            if path not in self.OPEN_ROUTES:
+                self.server.auth.authorise(self.headers.get("Authorization"))  # type: ignore[attr-defined]
+            body = self._read_json() if method == "POST" else {}
+            payload, facts = _split(handler(body))
+            status = HTTPStatus(facts.pop("status", HTTPStatus.OK))
+            self._send(status, payload)
+        except _NoSuchEndpoint as exc:
+            status = HTTPStatus.NOT_FOUND
+            self._send_error(status, "no_such_endpoint", f"no such endpoint: {exc.path}",
+                             {"routes": exc.routes})
+        except KbError as exc:
+            status = status_for(exc)
+            self._send_error(status, exc.code, exc.message, exc.details)
+            if status >= HTTPStatus.INTERNAL_SERVER_ERROR:
+                get_logger().error("request_failed", extra={"code": exc.code, "route": path})
+        except Exception:
+            # Nothing internal reaches the wire. The traceback goes to the log, under the same
+            # request id the client was handed, which is the only way to connect the two.
+            status = HTTPStatus.INTERNAL_SERVER_ERROR
+            get_logger().exception("unhandled_error", extra={"route": path, "method": method})
+            self._send_error(status, "internal_error",
+                             "the service failed to handle this request")
+        finally:
+            duration_ms = round((time.perf_counter() - started) * 1000.0, 3)
+            self.server.metrics.observe(path, int(status), duration_ms)  # type: ignore[attr-defined]
+            get_logger().info("request", extra=redact([
+                ("method", method), ("route", path), ("status", int(status)),
+                ("duration_ms", duration_ms), *facts.items(),
+            ]))
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib naming
-        self._dispatch({"/health": self._health, "/adapters": self._adapters})
+        self._dispatch({"/": self._index,
+                        "/health": self._health,
+                        "/ready": self._ready,
+                        "/metrics": self._metrics,
+                        f"{API_PREFIX}/adapters": self._adapters}, "GET")
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
-        try:
-            body = self._read_json()
-        except KbError as exc:
-            self._send_error(status_for(exc), exc.code, exc.message, exc.details)
-            return
-        self._dispatch({"/ingest": self._ingest, "/ask": self._ask, "/eval": self._eval,
-                        "/compare": self._compare, "/config": self._config}, body)
+        self._dispatch({f"{API_PREFIX}/ingest": self._ingest,
+                        f"{API_PREFIX}/ask": self._ask,
+                        f"{API_PREFIX}/eval": self._eval,
+                        f"{API_PREFIX}/compare": self._compare,
+                        f"{API_PREFIX}/config": self._config}, "POST")
 
     # ------------------------------------------------------------- handlers
+
+    def _index(self, _: dict[str, Any]) -> dict[str, Any]:
+        return {"service": "knowbase", "api": API_PREFIX,
+                "operational": ["/health", "/ready", "/metrics"],
+                "endpoints": [f"{API_PREFIX}/{name}" for name in
+                              ("adapters", "ingest", "ask", "eval", "compare", "config")],
+                "authentication": "bearer" if self.server.auth.enabled else "none"}  # type: ignore[attr-defined]
 
     def _health(self, _: dict[str, Any]) -> dict[str, Any]:
         c = self.container
@@ -206,57 +270,122 @@ class KbRequestHandler(BaseHTTPRequestHandler):
                           "misses": stats.misses},
                 "started_at": c.started_at}
 
+    def _ready(self, _: dict[str, Any]) -> dict[str, Any]:
+        """Readiness is corpus-shaped: the process is up long before it can answer anything."""
+        passages = self.container.index.size()
+        ready = passages > 0
+        return {"ready": ready,
+                "reason": None if ready else "no corpus ingested yet",
+                "indexed_passages": passages,
+                "_facts": {"status": HTTPStatus.OK if ready else HTTPStatus.SERVICE_UNAVAILABLE}}
+
+    def _metrics(self, _: dict[str, Any]) -> dict[str, Any]:
+        c = self.container
+        stats = c.cache.stats()
+        return self.server.metrics.snapshot({  # type: ignore[attr-defined]
+            "cache": {"name": stats.name, "entries": stats.entries, "hits": stats.hits,
+                      "misses": stats.misses, "hit_rate": round(stats.hit_rate, 4)},
+            "corpus": {"passages": c.index.size(),
+                       "documents": c.corpus.documents if c.corpus else 0,
+                       "fingerprint": c.fingerprint},
+            "wiring": c.wiring()})
+
     def _adapters(self, _: dict[str, Any]) -> dict[str, Any]:
         from ..adapters import (CACHE_ADAPTERS, CLOCK_ADAPTERS, GENERATOR_ADAPTERS,
-                                INDEX_ADAPTERS, SOURCE_ADAPTERS)
+                                INDEX_ADAPTERS, SOURCE_ADAPTERS, STORE_ADAPTERS)
         return {"ports": {"DocumentSourcePort": sorted(SOURCE_ADAPTERS),
                           "IndexPort": sorted(INDEX_ADAPTERS),
                           "GeneratorPort": sorted(GENERATOR_ADAPTERS),
                           "CachePort": sorted(CACHE_ADAPTERS),
+                          "CorpusStorePort": sorted(STORE_ADAPTERS),
                           "ClockPort": sorted(CLOCK_ADAPTERS)},
                 "bound": self.container.wiring()}
 
     def _ingest(self, body: dict[str, Any]) -> dict[str, Any]:
         request = self.validator.ingest(body)
         with self.server.lock:  # type: ignore[attr-defined]
-            return ingest_to_dict(self.container.ingest(request))
+            report = self.container.ingest(request)
+        payload = ingest_to_dict(report)
+        return {**payload, "_facts": {"source": report.source, "documents": report.documents,
+                                      "passages": report.passages}}
 
     def _ask(self, body: dict[str, Any]) -> dict[str, Any]:
         request = self.validator.ask(body)
-        return answer_to_dict(self.container.ask(request.question, k=request.k))
+        answer = self.container.ask(request.question, k=request.k)
+        # The question itself is user content and stays out of the log; its length does not.
+        return {**answer_to_dict(answer),
+                "_facts": {"question_chars": len(request.question),
+                           "index": answer.index, "generator": answer.generator,
+                           "hits": len(answer.hits), "citations": len(answer.citations),
+                           "cache": "hit" if answer.cached else "miss"}}
 
     def _eval(self, body: dict[str, Any]) -> dict[str, Any]:
         request = self.validator.evaluate(body)
-        return eval_to_dict(self.container.evaluate(request),
-                            rows=request.rows, page=request.page)
+        report = self.container.evaluate(request)
+        payload = eval_to_dict(report, rows=request.rows, page=request.page)
+        return {**payload, "_facts": {"suite": report.suite, "cases": report.n,
+                                      "mrr": report.mrr}}
 
     def _compare(self, body: dict[str, Any]) -> dict[str, Any]:
-        return comparison_to_dict(self.container.compare(self.validator.compare(body)))
+        report = self.container.compare(self.validator.compare(body))
+        return {**comparison_to_dict(report),
+                "_facts": {"suite": report.suite, "winner": report.winner,
+                           "indexes": len(report.reports)}}
 
     def _config(self, body: dict[str, Any]) -> dict[str, Any]:
         request = self.validator.configure(body)
         with self.server.lock:  # type: ignore[attr-defined]
             changes = self.container.rebind(index=request.index, generator=request.generator,
                                             cache=request.cache)
-        return {"changed": changes, "wiring": self.container.wiring()}
+        return {"changed": changes, "wiring": self.container.wiring(),
+                "_facts": {"rebound": ",".join(sorted(changes)) or "nothing"}}
+
+
+class _NoSuchEndpoint(Exception):
+    """Internal control flow for an unrouted path; never reaches a client as a type."""
+
+    def __init__(self, path: str, routes: list[str]) -> None:
+        super().__init__(path)
+        self.path = path
+        self.routes = routes
+
+
+def _split(result: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Separate the response body from the ``_facts`` a handler wants logged."""
+    payload = dict(result)
+    facts = dict(payload.pop("_facts", {}) or {})
+    return payload, facts
 
 
 def create_server(config: AppConfig | Mapping[str, Any] | None = None,
-                  host: str = "127.0.0.1", port: int = 0) -> KbHTTPServer:
-    """Bind a server. ``port=0`` asks the OS for an ephemeral port (the default everywhere)."""
-    return KbHTTPServer((host, port), build_container(config))
+                  host: str = "127.0.0.1", port: int = 0,
+                  token: str | None = None) -> KbHTTPServer:
+    """Bind a server. ``port=0`` asks the OS for an ephemeral port (the default everywhere).
+
+    ``token`` exists for tests; in operation the bearer token comes from ``KB_API_TOKEN`` and
+    binding a non-loopback address without one is refused here, before the socket opens.
+    """
+    auth = Authenticator.from_environment(token)
+    auth.check_bind(host)
+    return KbHTTPServer((host, port), build_container(config), auth)
 
 
 def serve_forever(config: AppConfig | Mapping[str, Any] | None = None,
-                  host: str = "127.0.0.1", port: int = 0) -> None:  # pragma: no cover - manual
+                  host: str = "127.0.0.1", port: int = 0,
+                  log_level: str = "INFO") -> None:  # pragma: no cover - manual
     """Run in the foreground until interrupted (``python -m knowbase serve``)."""
+    configure_logging(log_level)
     server = create_server(config, host, port)
+    log = get_logger()
+    log.info("listening", extra={"url": server.url, "wiring": server.container.wiring(),
+                                 "auth": "bearer" if server.auth.enabled else "none"})
     print(f"knowbase listening on {server.url} (ctrl-c to stop)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nshutting down", flush=True)
+        log.info("interrupted")
     finally:
         server.shutdown()
         server.server_close()
         server.container.close()
+        log.info("stopped")

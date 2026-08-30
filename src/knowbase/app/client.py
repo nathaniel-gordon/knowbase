@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterator, Mapping, Sequence
 
 from .config import AppConfig
-from .service import create_server
+from .service import API_PREFIX, create_server
 
 
 class ServiceError(RuntimeError):
@@ -36,6 +36,7 @@ class ServiceError(RuntimeError):
         self.code = str(error.get("code", "unknown"))
         self.message = str(error.get("message", ""))
         self.details = dict(error.get("details") or {})
+        self.request_id = str(error.get("request_id", ""))
         self.payload = dict(payload)
 
 
@@ -129,17 +130,22 @@ def _eval_view(payload: Mapping[str, Any]) -> EvalView:
 class KbClient:
     """Typed HTTP client. One method per endpoint, one dataclass per response."""
 
-    def __init__(self, base_url: str, timeout_s: float = 30.0) -> None:
+    def __init__(self, base_url: str, timeout_s: float = 30.0,
+                 token: str | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_s = timeout_s
+        self._token = token or ""
 
     # ------------------------------------------------------------ transport
 
     def _request(self, method: str, path: str,
                  payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
         data = None if payload is None else json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
         request = urllib.request.Request(f"{self.base_url}{path}", data=data, method=method,
-                                         headers={"Content-Type": "application/json"})
+                                         headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
                 return json.loads(response.read().decode("utf-8"))
@@ -151,31 +157,51 @@ class KbClient:
                 body = {"error": {"code": "unparseable_response", "message": raw[:500]}}
             raise ServiceError(exc.code, body) from None
 
+    def _api(self, method: str, name: str,
+             payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        return self._request(method, f"{API_PREFIX}/{name}", payload)
+
     # ------------------------------------------------------------- endpoints
+
+    def index(self) -> dict[str, Any]:
+        """The unversioned service index: where the API lives and whether auth is on."""
+        return self._request("GET", "/")
 
     def health(self) -> dict[str, Any]:
         return self._request("GET", "/health")
 
+    def ready(self) -> bool:
+        """True once a corpus is queryable. A 503 here is an answer, not a failure."""
+        try:
+            return bool(self._request("GET", "/ready")["ready"])
+        except ServiceError as exc:
+            if exc.status == 503:
+                return False
+            raise
+
+    def metrics(self) -> dict[str, Any]:
+        return self._request("GET", "/metrics")
+
     def adapters(self) -> dict[str, Any]:
-        return self._request("GET", "/adapters")
+        return self._api("GET", "adapters")
 
     def ingest_path(self, path: str, source: str = "filesystem",
                     exts: Sequence[str] | None = None) -> IngestView:
         body: dict[str, Any] = {"source": source, "path": str(path)}
         if exts:
             body["exts"] = list(exts)
-        return IngestView(**self._request("POST", "/ingest", body))
+        return IngestView(**self._api("POST", "ingest", body))
 
     def ingest_documents(self, documents: Mapping[str, str], label: str = "inline") -> IngestView:
-        return IngestView(**self._request("POST", "/ingest",
-                                          {"source": "memory", "documents": dict(documents),
-                                           "label": label}))
+        return IngestView(**self._api("POST", "ingest",
+                                      {"source": "memory", "documents": dict(documents),
+                                       "label": label}))
 
     def ask(self, question: str, k: int | None = None) -> AnswerView:
         body: dict[str, Any] = {"question": question}
         if k is not None:
             body["k"] = k
-        payload = self._request("POST", "/ask", body)
+        payload = self._api("POST", "ask", body)
         return AnswerView(
             question=payload["question"], answer=payload["answer"],
             generator=payload["generator"], index=payload["index"],
@@ -196,7 +222,7 @@ class KbClient:
             body["limit"] = limit
         if offset is not None:
             body["offset"] = offset
-        return _eval_view(self._request("POST", "/eval", body))
+        return _eval_view(self._api("POST", "eval", body))
 
     def compare(self, indexes: Sequence[str] | None = None, suite: str = "hard",
                 k: int | None = None,
@@ -208,7 +234,7 @@ class KbClient:
             body["k"] = k
         if cases is not None:
             body["cases"] = [dict(c) for c in cases]
-        payload = self._request("POST", "/compare", body)
+        payload = self._api("POST", "compare", body)
         return ComparisonView(suite=payload["suite"], k=int(payload["k"]),
                               winner=payload["winner"], margin=float(payload["margin"]),
                               reports=tuple(_eval_view(r) for r in payload["reports"]))
@@ -217,19 +243,20 @@ class KbClient:
                   cache: str | None = None) -> dict[str, Any]:
         body = {k: v for k, v in
                 (("index", index), ("generator", generator), ("cache", cache)) if v is not None}
-        return self._request("POST", "/config", body)
+        return self._api("POST", "config", body)
 
 
 @contextmanager
 def running_service(config: AppConfig | Mapping[str, Any] | None = None,
                     host: str = "127.0.0.1", port: int = 0,
-                    timeout_s: float = 30.0) -> Iterator[KbClient]:
+                    timeout_s: float = 30.0,
+                    token: str | None = None) -> Iterator[KbClient]:
     """Start the service on an ephemeral port, yield a client, and always shut it down."""
-    server = create_server(config, host, port)
+    server = create_server(config, host, port, token=token)
     thread = threading.Thread(target=server.serve_forever, name="knowbase-http", daemon=True)
     thread.start()
     try:
-        yield KbClient(server.url, timeout_s=timeout_s)
+        yield KbClient(server.url, timeout_s=timeout_s, token=token or server.auth.token)
     finally:
         server.shutdown()
         thread.join(timeout=10.0)
