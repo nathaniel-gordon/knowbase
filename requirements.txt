@@ -1,4 +1,8 @@
+# Runtime dependencies. Everything else this service uses is in the standard library:
+# http.server, sqlite3, threading, logging, zipfile, hashlib, hmac, secrets.
 numpy
 scikit-learn
-pytest
-anthropic  # optional: enables the Claude generator adapter; the service runs fully without it
+
+# Development and optional extras are declared in pyproject.toml, not here:
+#   pip install -e ".[dev]"   pytest, ruff, mypy
+#   pip install -e ".[llm]"   anthropic, for the Claude generator adapter
