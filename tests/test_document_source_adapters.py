@@ -9,9 +9,9 @@ import pytest
 
 from contracts.corpus_fixture import FIXTURE_DOCS
 from contracts.document_source_contract import DocumentSourceContract
-from kb.adapters.source.filesystem import FilesystemDocumentSource
-from kb.adapters.source.memory import InMemoryDocumentSource
-from kb.adapters.source.zip_archive import ZipDocumentSource
+from knowbase.adapters.source.filesystem import FilesystemDocumentSource
+from knowbase.adapters.source.memory import InMemoryDocumentSource
+from knowbase.adapters.source.zip_archive import ZipDocumentSource
 
 
 class TestFilesystemDocumentSource(DocumentSourceContract):
@@ -70,7 +70,7 @@ class TestZipDocumentSource(DocumentSourceContract):
 
 def test_every_registered_source_adapter_has_a_contract_subclass():
     """Guard against an adapter being added to the registry but never contract-tested."""
-    from kb.adapters import SOURCE_ADAPTERS
+    from knowbase.adapters import SOURCE_ADAPTERS
     covered = {cls.__name__ for cls in (FilesystemDocumentSource, InMemoryDocumentSource,
                                         ZipDocumentSource)}
     assert {cls.__name__ for cls in SOURCE_ADAPTERS.values()} == covered

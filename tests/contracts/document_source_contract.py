@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from kb.domain.errors import DocumentSourceUnavailable
-from kb.domain.model import Document
-from kb.ports import DocumentSourcePort
+from knowbase.domain.errors import DocumentSourceUnavailable
+from knowbase.domain.model import Document
+from knowbase.ports import DocumentSourcePort
 
 
 class DocumentSourceContract:

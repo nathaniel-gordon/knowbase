@@ -1,4 +1,4 @@
-"""``python -m kb <demo|serve>`` -- the module entry point.
+"""``python -m knowbase <demo|serve>`` -- the module entry point.
 
 ``serve`` is the operational entry point (a long-running JSON service); ``demo`` is the
 self-contained walkthrough that starts and stops its own server.
@@ -13,11 +13,11 @@ from .app.config import AppConfig
 from .app.demo import main as demo_main
 from .app.service import serve_forever
 
-USAGE = "usage: python -m kb {demo|serve} [options]   (try 'demo --help' or 'serve --help')"
+USAGE = "usage: python -m knowbase {demo|serve} [options]   (try 'demo --help' or 'serve --help')"
 
 
 def _serve(argv: Sequence[str]) -> int:
-    parser = argparse.ArgumentParser(prog="kb serve",
+    parser = argparse.ArgumentParser(prog="knowbase serve",
                                      description="Run the knowledge-base JSON service.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0, help="0 = ephemeral port chosen by the OS")

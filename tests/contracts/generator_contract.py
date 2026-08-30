@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import pytest
 
-from kb.domain.model import Generated, Passage
-from kb.domain.usecases import ABSTENTION
-from kb.ports import GeneratorPort
+from knowbase.domain.model import Generated, Passage
+from knowbase.domain.usecases import ABSTENTION
+from knowbase.ports import GeneratorPort
 
 LEAVE_PASSAGE = Passage(
     doc_id="leave", ordinal=0, title="Time Off Rules", origin="fixture://leave",

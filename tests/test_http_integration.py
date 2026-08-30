@@ -11,15 +11,15 @@ import urllib.request
 
 import pytest
 
-from kb.app.client import ServiceError, running_service
-from kb.app.config import AppConfig
+from knowbase.app.client import ServiceError, running_service
+from knowbase.app.config import AppConfig
 
 
 @pytest.fixture(scope="module")
 def client(tmp_path_factory):
     """A live service with the demo corpus ingested, shared by the read-only tests."""
     corpus = tmp_path_factory.mktemp("http_docs")
-    from kb.app.corpus import write_demo_corpus
+    from knowbase.app.corpus import write_demo_corpus
     write_demo_corpus(corpus)
     config = AppConfig(clock="frozen", cache="memory", generator="extractive")
     with running_service(config) as live:

@@ -5,7 +5,7 @@ from datetime import datetime
 
 import pytest
 
-from kb.ports import ClockPort
+from knowbase.ports import ClockPort
 
 
 class ClockContract:

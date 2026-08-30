@@ -8,16 +8,16 @@ from __future__ import annotations
 
 import pytest
 
-from kb.adapters.cache.memory import InMemoryCache
-from kb.adapters.clock.system import FrozenClock
-from kb.adapters.generator.extractive import ExtractiveGenerator
-from kb.adapters.index.bm25_only import Bm25Index
-from kb.adapters.index.hybrid_rrf import HybridRrfIndex
-from kb.adapters.index.tfidf_only import TfidfIndex
-from kb.adapters.source.filesystem import FilesystemDocumentSource
-from kb.app.corpus import CORE_SUITE, HARD_SUITE
-from kb.domain.errors import IndexNotBuiltError, UnknownStrategyError
-from kb.domain.usecases import AskQuestion, CompareStrategies, EvaluateRetrieval, IngestCorpus
+from knowbase.adapters.cache.memory import InMemoryCache
+from knowbase.adapters.clock.system import FrozenClock
+from knowbase.adapters.generator.extractive import ExtractiveGenerator
+from knowbase.adapters.index.bm25_only import Bm25Index
+from knowbase.adapters.index.hybrid_rrf import HybridRrfIndex
+from knowbase.adapters.index.tfidf_only import TfidfIndex
+from knowbase.adapters.source.filesystem import FilesystemDocumentSource
+from knowbase.app.corpus import CORE_SUITE, HARD_SUITE
+from knowbase.domain.errors import IndexNotBuiltError, UnknownStrategyError
+from knowbase.domain.usecases import AskQuestion, CompareStrategies, EvaluateRetrieval, IngestCorpus
 
 #: Pre-refactor baseline, reproduced by the demo on every run.
 BASELINE_CORE = {"hit@1": 1.0, "hit@5": 1.0, "mrr": 1.0}

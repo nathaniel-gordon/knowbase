@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from kb.domain.errors import EmptyCorpusError, IndexNotBuiltError
-from kb.ports import IndexPort
+from knowbase.domain.errors import EmptyCorpusError, IndexNotBuiltError
+from knowbase.ports import IndexPort
 
 from .corpus_fixture import FIXTURE_PROBES
 

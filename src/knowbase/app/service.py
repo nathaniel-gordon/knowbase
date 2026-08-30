@@ -54,7 +54,7 @@ class KbHTTPServer(ThreadingHTTPServer):
 class KbRequestHandler(BaseHTTPRequestHandler):
     """Routes requests to container use-cases and maps domain errors onto status codes."""
 
-    server_version = "kb-rag/2.0"
+    server_version = "knowbase/0.1"
     protocol_version = "HTTP/1.1"
 
     # ------------------------------------------------------------- plumbing
@@ -181,9 +181,9 @@ def create_server(config: AppConfig | Mapping[str, Any] | None = None,
 
 def serve_forever(config: AppConfig | Mapping[str, Any] | None = None,
                   host: str = "127.0.0.1", port: int = 0) -> None:  # pragma: no cover - manual
-    """Run in the foreground until interrupted (``python -m kb serve``)."""
+    """Run in the foreground until interrupted (``python -m knowbase serve``)."""
     server = create_server(config, host, port)
-    print(f"kb-rag listening on {server.url} (ctrl-c to stop)", flush=True)
+    print(f"knowbase listening on {server.url} (ctrl-c to stop)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

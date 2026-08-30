@@ -3,10 +3,10 @@
 The package lives under ``src/`` and is normally installed (``pip install -e .``). This shim
 puts ``src`` on ``sys.path`` so the service and the demo also run straight from a clone::
 
-    python kbctl.py demo
-    python kbctl.py serve --port 8080 --index bm25
+    python run.py demo
+    python run.py serve --port 8080 --index bm25
 
-It contains no application logic; everything is delegated to ``kb.__main__``.
+It contains no application logic; everything is delegated to ``knowbase.__main__``.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from kb.__main__ import main  # noqa: E402  (path must be set before the import)
+from knowbase.__main__ import main  # noqa: E402  (path must be set before the import)
 
 if __name__ == "__main__":
     raise SystemExit(main())

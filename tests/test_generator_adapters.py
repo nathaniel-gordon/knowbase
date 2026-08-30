@@ -16,11 +16,11 @@ from contracts.generator_contract import (
     PASSWORD_PASSAGE,
     GeneratorContract,
 )
-from kb.adapters.generator.claude import ClaudeGenerator, anthropic_completion
-from kb.adapters.generator.extractive import ExtractiveGenerator
-from kb.domain.errors import AdapterUnavailable
-from kb.domain.text import tokenize
-from kb.domain.usecases import ABSTENTION
+from knowbase.adapters.generator.claude import ClaudeGenerator, anthropic_completion
+from knowbase.adapters.generator.extractive import ExtractiveGenerator
+from knowbase.domain.errors import AdapterUnavailable
+from knowbase.domain.text import tokenize
+from knowbase.domain.usecases import ABSTENTION
 
 _CONTEXT_RE = re.compile(r"^\[(\d+)\] \((\S+)\) (.*)$", re.MULTILINE)
 
@@ -111,5 +111,5 @@ class TestClaudeGenerator(GeneratorContract):
 
 def test_both_generators_satisfy_the_same_battery():
     """Sanity check that the registry and the contract subclasses have not drifted apart."""
-    from kb.adapters import GENERATOR_ADAPTERS
+    from knowbase.adapters import GENERATOR_ADAPTERS
     assert set(GENERATOR_ADAPTERS) == {ExtractiveGenerator.name, ClaudeGenerator.name}

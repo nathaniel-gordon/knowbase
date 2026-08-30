@@ -15,11 +15,11 @@ from pathlib import Path
 import pytest
 
 SRC = Path(__file__).resolve().parents[1] / "src"
-DOMAIN = SRC / "kb" / "domain"
-PORTS = SRC / "kb" / "ports"
+DOMAIN = SRC / "knowbase" / "domain"
+PORTS = SRC / "knowbase" / "ports"
 
 #: Everything the core is permitted to name. Pure computation only: no IO, no clock, no
-#: randomness, no third-party package, and above all nothing from ``kb.adapters`` or ``kb.app``.
+#: randomness, no third-party package, and above all nothing from ``knowbase.adapters`` or ``knowbase.app``.
 DOMAIN_ALLOWED_ROOTS = frozenset({
     "__future__", "dataclasses", "typing", "collections", "re", "hashlib", "math", "enum",
 })
@@ -92,7 +92,7 @@ def test_ports_declare_protocols_and_import_no_adapter(module: Path):
 
 def test_ports_are_protocols_not_base_classes():
     """Structural typing is what lets adapters conform without inheriting from the core."""
-    import kb.ports as ports
+    import knowbase.ports as ports
     from typing import Protocol
     for name in ports.__all__:
         port = getattr(ports, name)
@@ -104,7 +104,7 @@ def test_importing_the_domain_pulls_in_no_scientific_stack():
     probe = (
         "import sys;"
         f"sys.path.insert(0, r'{SRC}');"
-        "import kb.domain.usecases, kb.domain.text, kb.domain.model, kb.ports;"
+        "import knowbase.domain.usecases, knowbase.domain.text, knowbase.domain.model, knowbase.ports;"
         "leaked=[m for m in ('numpy','sklearn','scipy','pandas','anthropic','sqlite3')"
         " if m in sys.modules];"
         "print('LEAKED:'+','.join(leaked) if leaked else 'PURE')"
@@ -117,8 +117,8 @@ def test_importing_the_domain_pulls_in_no_scientific_stack():
 
 def test_adapters_are_allowed_to_depend_on_the_domain():
     """The arrow points inward -- confirm it actually does, so the test above means something."""
-    hybrid = SRC / "kb" / "adapters" / "index" / "hybrid_rrf.py"
+    hybrid = SRC / "knowbase" / "adapters" / "index" / "hybrid_rrf.py"
     assert "numpy" not in hybrid.read_text(encoding="utf-8")  # it is in _lexical.py
-    lexical = SRC / "kb" / "adapters" / "index" / "_lexical.py"
+    lexical = SRC / "knowbase" / "adapters" / "index" / "_lexical.py"
     assert "import numpy" in lexical.read_text(encoding="utf-8")
     assert _relative_targets(hybrid) >= {"domain"}

@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from contracts.clock_contract import ClockContract
-from kb.adapters.clock.system import FrozenClock, SystemClock
+from knowbase.adapters.clock.system import FrozenClock, SystemClock
 
 
 class TestSystemClock(ClockContract):
@@ -28,5 +28,5 @@ class TestFrozenClock(ClockContract):
 
 
 def test_every_registered_clock_adapter_has_a_contract_subclass():
-    from kb.adapters import CLOCK_ADAPTERS
+    from knowbase.adapters import CLOCK_ADAPTERS
     assert {cls.__name__ for cls in CLOCK_ADAPTERS.values()} == {"SystemClock", "FrozenClock"}

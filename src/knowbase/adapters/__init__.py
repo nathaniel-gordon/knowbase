@@ -1,7 +1,7 @@
 """Driven adapters -- the outside of the hexagon.
 
-Every module here implements exactly one port and may import ``kb.domain`` and ``kb.ports``.
-Nothing in ``kb.domain`` may import anything from this package; the arrow points inward only.
+Every module here implements exactly one port and may import ``knowbase.domain`` and ``knowbase.ports``.
+Nothing in ``knowbase.domain`` may import anything from this package; the arrow points inward only.
 
 The dictionaries below are the registries the composition root consults, so adding an adapter
 is a one-line change in one file and requires no edit to any use-case.

@@ -5,10 +5,10 @@ import dataclasses
 
 import pytest
 
-from kb.app.client import AnswerView, ComparisonView, EvalView, IngestView, running_service
-from kb.app.composition import build_container, build_generator, build_source
-from kb.app.config import AppConfig
-from kb.domain.errors import UnknownStrategyError
+from knowbase.app.client import AnswerView, ComparisonView, EvalView, IngestView, running_service
+from knowbase.app.composition import build_container, build_generator, build_source
+from knowbase.app.config import AppConfig
+from knowbase.domain.errors import UnknownStrategyError
 
 
 @pytest.fixture(scope="module")

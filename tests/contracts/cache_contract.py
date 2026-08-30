@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from kb.domain.model import Generated
-from kb.ports import CachePort
+from knowbase.domain.model import Generated
+from knowbase.ports import CachePort
 
 VALUE = Generated(text="Employees receive 21 paid vacation days each year. [1]", cited=(1,))
 OTHER = Generated(text="Passwords must be at least 14 characters. [2]", cited=(2,))

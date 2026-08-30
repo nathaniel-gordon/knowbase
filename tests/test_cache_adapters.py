@@ -6,8 +6,8 @@ import sqlite3
 import pytest
 
 from contracts.cache_contract import VALUE, CacheContract
-from kb.adapters.cache.memory import InMemoryCache
-from kb.adapters.cache.sqlite import SqliteCache
+from knowbase.adapters.cache.memory import InMemoryCache
+from knowbase.adapters.cache.sqlite import SqliteCache
 
 
 class TestInMemoryCache(CacheContract):
@@ -52,5 +52,5 @@ class TestSqliteCache(CacheContract):
 
 
 def test_every_registered_cache_adapter_has_a_contract_subclass():
-    from kb.adapters import CACHE_ADAPTERS
+    from knowbase.adapters import CACHE_ADAPTERS
     assert {cls.__name__ for cls in CACHE_ADAPTERS.values()} == {"InMemoryCache", "SqliteCache"}

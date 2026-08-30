@@ -119,7 +119,7 @@ def _summarise(client: KbClient, core_before, core_after, hard_after) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="kb demo", description=__doc__)
+    parser = argparse.ArgumentParser(prog="knowbase demo", description=__doc__)
     parser.add_argument("--output", default=str(Path.cwd() / "output"),
                         help="where the demo corpus and sqlite cache are written")
     parser.add_argument("--live-clock", action="store_true",

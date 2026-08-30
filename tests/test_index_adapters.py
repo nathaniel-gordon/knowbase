@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 
 from contracts.index_contract import IndexContract
-from kb.adapters.index.bm25_only import Bm25Index
-from kb.adapters.index.hybrid_rrf import HybridRrfIndex
-from kb.adapters.index.tfidf_only import TfidfIndex
+from knowbase.adapters.index.bm25_only import Bm25Index
+from knowbase.adapters.index.hybrid_rrf import HybridRrfIndex
+from knowbase.adapters.index.tfidf_only import TfidfIndex
 
 
 class TestHybridRrfIndex(IndexContract):
@@ -55,7 +55,7 @@ class TestTfidfIndex(IndexContract):
 
 
 def test_every_registered_index_adapter_has_a_contract_subclass():
-    from kb.adapters import INDEX_ADAPTERS
+    from knowbase.adapters import INDEX_ADAPTERS
     covered = {cls.__name__ for cls in (HybridRrfIndex, Bm25Index, TfidfIndex)}
     assert {cls.__name__ for cls in INDEX_ADAPTERS.values()} == covered
 

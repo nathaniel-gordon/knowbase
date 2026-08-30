@@ -4,13 +4,13 @@
   "architecture": "hexagonal (ports & adapters): domain use-cases depend only on Protocol ports; adapters injected by a composition root",
   "interface": "stdlib http.server JSON microservice (/health /adapters /ingest /ask /eval /compare /config) plus a typed Python client SDK",
   "testing": "port contract test batteries executed against every adapter of every port, plus HTTP integration tests and a domain-purity fitness function",
-  "demo_cmd": "python kbctl.py demo",
+  "demo_cmd": "python run.py demo",
   "test_cmd": "python -m pytest tests -q",
   "entry_points": [
-    "python kbctl.py demo",
-    "python kbctl.py serve --port 8080 --index hybrid_rrf",
-    "python -m kb serve --host 127.0.0.1 --port 0",
-    "kb.app.running_service / kb.app.KbClient (typed client SDK)",
-    "kb.app.build_container (composition root)"
+    "python run.py demo",
+    "python run.py serve --port 8080 --index hybrid_rrf",
+    "python -m knowbase serve --host 127.0.0.1 --port 0",
+    "knowbase.app.running_service / knowbase.app.KbClient (typed client SDK)",
+    "knowbase.app.build_container (composition root)"
   ]
 }

@@ -202,7 +202,7 @@ def running_service(config: AppConfig | Mapping[str, Any] | None = None,
                     timeout_s: float = 30.0) -> Iterator[KbClient]:
     """Start the service on an ephemeral port, yield a client, and always shut it down."""
     server = create_server(config, host, port)
-    thread = threading.Thread(target=server.serve_forever, name="kb-http", daemon=True)
+    thread = threading.Thread(target=server.serve_forever, name="knowbase-http", daemon=True)
     thread.start()
     try:
         yield KbClient(server.url, timeout_s=timeout_s)

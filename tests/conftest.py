@@ -19,10 +19,10 @@ for entry in (str(SRC), str(TESTS)):
         sys.path.insert(0, entry)
 
 from contracts.corpus_fixture import FIXTURE_DOCS  # noqa: E402
-from kb.adapters.clock.system import FrozenClock  # noqa: E402
-from kb.app.corpus import write_demo_corpus  # noqa: E402
-from kb.domain.model import Document  # noqa: E402
-from kb.domain.text import chunk_document  # noqa: E402
+from knowbase.adapters.clock.system import FrozenClock  # noqa: E402
+from knowbase.app.corpus import write_demo_corpus  # noqa: E402
+from knowbase.domain.model import Document  # noqa: E402
+from knowbase.domain.text import chunk_document  # noqa: E402
 
 
 @pytest.fixture(scope="session")

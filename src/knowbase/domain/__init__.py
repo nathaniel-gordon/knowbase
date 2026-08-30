@@ -1,7 +1,7 @@
 """The domain core: entities, pure text services, and use-cases.
 
 Import rule for this package (asserted by ``tests/test_domain_purity.py``): only the standard
-library's pure-computation modules and ``kb.ports`` may appear here. No numpy, no sklearn, no
+library's pure-computation modules and ``knowbase.ports`` may appear here. No numpy, no sklearn, no
 sqlite3, no pathlib, no http, no clock, no randomness.
 """
 from __future__ import annotations
