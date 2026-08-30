@@ -242,7 +242,7 @@ lineage and these are its current numbers.
 
 ```
 $ python -m pytest tests -q
-408 passed, 1 skipped in 51.05s
+409 passed, 1 skipped in 51.79s
 ```
 
 The skip is the symlink-containment test, which needs a platform/user that can create symlinks.
@@ -290,7 +290,10 @@ put in front of users.
   cites a neighbouring one on the same topic can still pass the checks.
 - **Authentication is a single shared bearer token.** No users, no roles, no rotation, no rate
   limiting.
-- **No deployment exists.** No container image, no CI, no hosted instance, no uptime to report.
+- **No deployment exists.** No container image, no hosted instance, no uptime to report. The
+  GitHub Actions workflow in `.github/workflows/ci.yml` runs pytest, ruff and mypy, but it has
+  never run on a runner — nothing has been pushed from here, so there is no green badge to
+  point at and the matrix beyond the local interpreter is untested.
 - **`/config` mutates process-wide state.** It is a demonstration of the ports seam, not a
   multi-tenant control plane.
 
