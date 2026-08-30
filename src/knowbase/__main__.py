@@ -25,6 +25,8 @@ def _serve(argv: Sequence[str]) -> int:
     parser.add_argument("--generator", default="claude",
                         help="GeneratorPort adapter to bind ('claude' degrades to 'extractive')")
     parser.add_argument("--cache", default="memory", help="CachePort adapter to bind")
+    parser.add_argument("--store", default="memory",
+                        help="CorpusStorePort adapter; 'sqlite' keeps the corpus across restarts")
     parser.add_argument("--cache-ttl", type=float, default=None,
                         help="seconds a cached answer stays servable (default: no expiry)")
     parser.add_argument("--corpus-root", action="append", default=[], metavar="DIR",
@@ -36,6 +38,7 @@ def _serve(argv: Sequence[str]) -> int:
     args = parser.parse_args(list(argv))
     config = (AppConfig.from_json_file(args.config) if args.config
               else AppConfig(index=args.index, generator=args.generator, cache=args.cache,
+                             store=args.store,
                              cache_ttl_s=args.cache_ttl,
                              sqlite_path=args.sqlite_path,
                              corpus_roots=tuple(args.corpus_root)))

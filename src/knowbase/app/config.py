@@ -24,6 +24,7 @@ class AppConfig:
     index: str = "hybrid_rrf"
     generator: str = "claude"          # degrades to 'extractive' when no credentials exist
     cache: str = "memory"
+    store: str = "memory"              # CorpusStorePort; 'sqlite' survives a restart
     clock: str = "system"
     sqlite_path: str = ":memory:"      # the service database: answer cache and corpus store
     corpus_roots: tuple[str, ...] = ()  # empty means "the working directory"
@@ -50,7 +51,7 @@ class AppConfig:
     def to_dict(self) -> dict[str, Any]:
         return {
             "index": self.index, "generator": self.generator, "cache": self.cache,
-            "clock": self.clock, "sqlite_path": self.sqlite_path,
+            "store": self.store, "clock": self.clock, "sqlite_path": self.sqlite_path,
             "corpus_roots": list(self.corpus_roots),
             "compare_indexes": list(self.compare_indexes),
             "top_k": self.top_k, "eval_k": self.eval_k, "cache_ttl_s": self.cache_ttl_s,

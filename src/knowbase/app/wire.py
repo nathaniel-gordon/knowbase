@@ -8,14 +8,41 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..domain.model import Answer, ComparisonReport, EvalReport, IngestReport
+from ..domain.model import (
+    Answer,
+    ComparisonReport,
+    CorpusSnapshot,
+    EvalReport,
+    IngestReport,
+)
 from .validation import Page
 
 
 def ingest_to_dict(report: IngestReport) -> dict[str, Any]:
     return {"source": report.source, "index": report.index, "documents": report.documents,
             "passages": report.passages, "started_at": report.started_at,
-            "elapsed_ms": report.elapsed_ms}
+            "elapsed_ms": report.elapsed_ms, "fingerprint": report.fingerprint}
+
+
+def corpus_to_dict(snapshot: CorpusSnapshot | None, report: IngestReport | None,
+                   restored: bool) -> dict[str, Any] | None:
+    """What the service is currently holding, whether it was ingested here or restored.
+
+    ``restored`` matters to an operator: a corpus that came back from the store was never
+    posted to this process, so there is no ingest report to show and no elapsed time.
+    """
+    if snapshot is None:
+        return None
+    payload: dict[str, Any] = {"fingerprint": snapshot.fingerprint,
+                               "source": snapshot.source,
+                               "documents": snapshot.documents,
+                               "passages": len(snapshot.passages),
+                               "started_at": snapshot.started_at,
+                               "restored": restored}
+    if report is not None:
+        payload["elapsed_ms"] = report.elapsed_ms
+        payload["index"] = report.index
+    return payload
 
 
 def answer_to_dict(answer: Answer) -> dict[str, Any]:

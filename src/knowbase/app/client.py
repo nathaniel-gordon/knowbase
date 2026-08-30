@@ -81,6 +81,7 @@ class IngestView:
     passages: int
     started_at: str
     elapsed_ms: float
+    fingerprint: str = ""
 
 
 @dataclass(frozen=True, slots=True)

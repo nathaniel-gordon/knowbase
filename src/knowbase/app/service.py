@@ -39,7 +39,13 @@ from ..domain.errors import (
 from .composition import Container, build_container
 from .config import AppConfig
 from .validation import RequestValidator
-from .wire import answer_to_dict, comparison_to_dict, eval_to_dict, ingest_to_dict
+from .wire import (
+    answer_to_dict,
+    comparison_to_dict,
+    corpus_to_dict,
+    eval_to_dict,
+    ingest_to_dict,
+)
 
 #: Which HTTP status each domain error maps onto. Everything here is the client's fault
 #: except the two 5xx entries, which mean the service could not do its job.
@@ -195,7 +201,7 @@ class KbRequestHandler(BaseHTTPRequestHandler):
         stats = c.cache.stats()
         return {"status": "ok", "wiring": c.wiring(),
                 "indexed_passages": c.index.size(),
-                "corpus": ingest_to_dict(c.last_ingest) if c.last_ingest else None,
+                "corpus": corpus_to_dict(c.corpus, c.last_ingest, c.restored),
                 "cache": {"entries": stats.entries, "hits": stats.hits,
                           "misses": stats.misses},
                 "started_at": c.started_at}

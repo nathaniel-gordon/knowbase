@@ -15,20 +15,36 @@ from ..adapters import (
     GENERATOR_ADAPTERS,
     INDEX_ADAPTERS,
     SOURCE_ADAPTERS,
+    STORE_ADAPTERS,
     ClaudeGenerator,
     ExtractiveGenerator,
     FilesystemDocumentSource,
     InMemoryDocumentSource,
     SqliteCache,
+    SqliteCorpusStore,
     ZipDocumentSource,
     anthropic_completion,
 )
 from ..adapters.source.filesystem import DEFAULT_EXTS as FS_DEFAULT_EXTS
 from ..adapters.source.zip_archive import DEFAULT_EXTS as ZIP_DEFAULT_EXTS
 from ..domain.errors import AdapterUnavailable, IndexNotBuiltError, UnknownStrategyError
-from ..domain.model import Answer, ComparisonReport, EvalCase, EvalReport, IngestReport
+from ..domain.model import (
+    Answer,
+    ComparisonReport,
+    CorpusSnapshot,
+    EvalCase,
+    EvalReport,
+    IngestReport,
+)
 from ..domain.usecases import AskQuestion, CompareStrategies, EvaluateRetrieval, IngestCorpus
-from ..ports import CachePort, ClockPort, DocumentSourcePort, GeneratorPort, IndexPort
+from ..ports import (
+    CachePort,
+    ClockPort,
+    CorpusStorePort,
+    DocumentSourcePort,
+    GeneratorPort,
+    IndexPort,
+)
 from .config import AppConfig
 from .corpus import SUITES
 from .limits import Limits
@@ -52,6 +68,15 @@ def build_cache(name: str, clock: ClockPort, sqlite_path: str = ":memory:") -> C
             requested=name, available=sorted(CACHE_ADAPTERS))
     cls = CACHE_ADAPTERS[name]
     return cls(clock, sqlite_path) if cls is SqliteCache else cls(clock)
+
+
+def build_store(name: str, clock: ClockPort, sqlite_path: str = ":memory:") -> CorpusStorePort:
+    if name not in STORE_ADAPTERS:
+        raise UnknownStrategyError(
+            f"unknown store adapter {name!r}; available: {sorted(STORE_ADAPTERS)}",
+            requested=name, available=sorted(STORE_ADAPTERS))
+    cls = STORE_ADAPTERS[name]
+    return cls(clock, sqlite_path) if cls is SqliteCorpusStore else cls()
 
 
 def build_index(name: str) -> IndexPort:
@@ -125,12 +150,39 @@ class Container:
         self.roots = CorpusRoots(config.corpus_roots)
         self.clock = build_clock(config.clock)
         self.cache = build_cache(config.cache, self.clock, config.sqlite_path)
+        self.store = build_store(config.store, self.clock, config.sqlite_path)
         self.generator, self.generator_note = build_generator(config.generator)
         self.indexes: dict[str, IndexPort] = {n: build_index(n) for n in config.index_names()}
         self.source: DocumentSourcePort | None = None
         self.last_ingest: IngestReport | None = None
-        self.passages: list[Any] = []
+        self.corpus: CorpusSnapshot | None = None
+        self.restored = False
         self.started_at = self.clock.timestamp()
+        self._restore()
+
+    def _restore(self) -> None:
+        """Rebuild the indexes from the corpus store, if it is holding one.
+
+        With the sqlite store bound this is what makes a restart free: the service comes back
+        answering the same questions from the same passage ordinals, so citations issued
+        before the restart still resolve.
+        """
+        snapshot = self.store.load()
+        if snapshot is None:
+            return
+        for index in self.indexes.values():
+            index.build(snapshot.passages)
+        self.corpus = snapshot
+        self.restored = True
+
+    @property
+    def passages(self) -> tuple[Any, ...]:
+        """Passages of the current corpus; empty until something is ingested or restored."""
+        return () if self.corpus is None else self.corpus.passages
+
+    @property
+    def fingerprint(self) -> str:
+        return "" if self.corpus is None else self.corpus.fingerprint
 
     # ---------------------------------------------------------------- wiring
 
@@ -148,6 +200,7 @@ class Container:
             "cache": self.cache.name,
             "clock": self.clock.name,
             "source": self.source.describe() if self.source else None,
+            "store": self.store.name,
             "corpus_roots": len(self.roots.roots),
         }
 
@@ -162,7 +215,7 @@ class Container:
                     requested=index, available=sorted(INDEX_ADAPTERS))
             if index not in self.indexes:
                 fresh = build_index(index)
-                if self.last_ingest is not None and self.passages:
+                if self.passages:
                     fresh.build(self.passages)
                 self.indexes[index] = fresh
             changes["index"] = {"from": self.config.index, "to": index}
@@ -172,7 +225,10 @@ class Container:
             changes["generator"] = {"to": self.generator.name, "detail": self.generator_note}
             self.config = self.config.with_(generator=generator)
         if cache is not None and cache != self.cache.name:
-            self._close_cache()
+            # No clear() here on purpose. Entries are keyed on the corpus fingerprint, so a
+            # cache file written against another corpus simply misses; throwing away a
+            # durable cache on every rebind would defeat the reason it is durable.
+            self._close(self.cache)
             self.cache = build_cache(cache, self.clock, self.config.sqlite_path)
             changes["cache"] = {"to": self.cache.name}
             self.config = self.config.with_(cache=cache)
@@ -185,20 +241,27 @@ class Container:
         use_case = IngestCorpus(source=source,
                                 indexes=[self.indexes[n] for n in sorted(self.indexes)],
                                 clock=self.clock,
+                                store=self.store,
                                 target_words=self.config.target_words,
                                 overlap=self.config.overlap)
+        previous = self.fingerprint
         report = use_case.execute()
         self.source = source
-        self.passages = list(use_case.passages)
+        self.corpus = use_case.snapshot
         self.last_ingest = report
-        self.cache.clear()  # answers cached against a previous corpus are no longer grounded
+        self.restored = False
+        if previous and previous != report.fingerprint:
+            # Answers about the old corpus are unreachable anyway (the fingerprint is in the
+            # key); dropping them keeps the cache from growing one dead generation at a time.
+            self.cache.clear()
         return report
 
     def ask(self, question: str, k: int | None = None) -> Answer:
         self._require_index()
         return AskQuestion(index=self.index, generator=self.generator, cache=self.cache,
                            clock=self.clock, default_k=self.config.top_k,
-                           ttl_s=self.config.cache_ttl_s).execute(question, k=k)
+                           ttl_s=self.config.cache_ttl_s,
+                           corpus_fingerprint=self.fingerprint).execute(question, k=k)
 
     def evaluate(self, request: EvalRequest) -> EvalReport:
         self._require_index()
@@ -229,14 +292,16 @@ class Container:
         if self.index.size() == 0:
             raise IndexNotBuiltError("no corpus ingested yet; POST /ingest first")
 
-    def _close_cache(self) -> None:
-        closer = getattr(self.cache, "close", None)
+    @staticmethod
+    def _close(adapter: object) -> None:
+        closer = getattr(adapter, "close", None)
         if callable(closer):
             closer()
 
     def close(self) -> None:
         """Release adapter resources (sqlite handles) -- important on Windows."""
-        self._close_cache()
+        self._close(self.cache)
+        self._close(self.store)
 
 
 def build_container(config: AppConfig | Mapping[str, Any] | None = None) -> Container:

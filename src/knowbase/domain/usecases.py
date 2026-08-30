@@ -10,12 +10,20 @@ from __future__ import annotations
 import hashlib
 from typing import Iterable, Mapping, Sequence
 
-from ..ports import CachePort, ClockPort, DocumentSourcePort, GeneratorPort, IndexPort
+from ..ports import (
+    CachePort,
+    ClockPort,
+    CorpusStorePort,
+    DocumentSourcePort,
+    GeneratorPort,
+    IndexPort,
+)
 from .errors import EmptyCorpusError, UnknownStrategyError
 from .model import (
     Answer,
     Citation,
     ComparisonReport,
+    CorpusSnapshot,
     Document,
     EvalCase,
     EvalReport,
@@ -24,7 +32,7 @@ from .model import (
     IngestReport,
     Passage,
 )
-from .text import DEFAULT_OVERLAP, DEFAULT_TARGET_WORDS, chunk_document
+from .text import DEFAULT_OVERLAP, DEFAULT_TARGET_WORDS, chunk_document, corpus_fingerprint
 
 ABSTENTION = "No relevant information found in the knowledge base."
 
@@ -41,6 +49,7 @@ class IngestCorpus:
                  source: DocumentSourcePort,
                  indexes: Sequence[IndexPort],
                  clock: ClockPort,
+                 store: CorpusStorePort | None = None,
                  target_words: int = DEFAULT_TARGET_WORDS,
                  overlap: int = DEFAULT_OVERLAP) -> None:
         if not indexes:
@@ -48,9 +57,11 @@ class IngestCorpus:
         self._source = source
         self._indexes = list(indexes)
         self._clock = clock
+        self._store = store
         self._target_words = target_words
         self._overlap = overlap
         self.passages: list[Passage] = []
+        self.snapshot: CorpusSnapshot | None = None
 
     def execute(self) -> IngestReport:
         started_at = self._clock.timestamp()
@@ -70,12 +81,24 @@ class IngestCorpus:
             index.build(passages)
         self.passages = passages
 
+        snapshot = CorpusSnapshot(fingerprint=corpus_fingerprint(passages),
+                                  source=self._source.name,
+                                  documents=len(documents),
+                                  started_at=started_at,
+                                  passages=tuple(passages))
+        # Persisted only after every index accepted the passages: a store holding a corpus
+        # that cannot be indexed would make the next start-up fail instead of the ingest.
+        if self._store is not None:
+            self._store.save(snapshot)
+        self.snapshot = snapshot
+
         return IngestReport(source=self._source.name,
                             index="+".join(i.name for i in self._indexes),
                             documents=len(documents),
                             passages=len(passages),
                             started_at=started_at,
-                            elapsed_ms=round((self._clock.now() - t0) * 1000.0, 3))
+                            elapsed_ms=round((self._clock.now() - t0) * 1000.0, 3),
+                            fingerprint=snapshot.fingerprint)
 
 
 class AskQuestion:
@@ -92,17 +115,26 @@ class AskQuestion:
                  cache: CachePort,
                  clock: ClockPort,
                  default_k: int = 4,
-                 ttl_s: float | None = None) -> None:
+                 ttl_s: float | None = None,
+                 corpus_fingerprint: str = "") -> None:
         self._index = index
         self._generator = generator
         self._cache = cache
         self._clock = clock
         self._default_k = default_k
         self._ttl_s = ttl_s
+        self._fingerprint = corpus_fingerprint
 
     def cache_key(self, question: str, k: int) -> str:
-        """Key includes the adapter names: swapping index or generator must not serve stale prose."""
-        material = f"{self._index.name}|{self._generator.name}|{k}|{' '.join(question.lower().split())}"
+        """Identity of an answer: corpus, index, generator, k, and the normalised question.
+
+        The corpus fingerprint is the load-bearing part. Without it, a durable cache written
+        against one corpus is readable while a completely different corpus is loaded, and the
+        reply carries the old prose with no citations at all -- the answer is not grounded in
+        anything the service currently holds.
+        """
+        material = (f"{self._fingerprint}|{self._index.name}|{self._generator.name}|{k}|"
+                    f"{' '.join(question.lower().split())}")
         return hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
 
     def execute(self, question: str, k: int | None = None) -> Answer:
@@ -119,7 +151,7 @@ class AskQuestion:
 
         key = self.cache_key(question, k)
         cached = self._cache.get(key)
-        if cached is not None:
+        if cached is not None and self._still_grounded(cached, passages):
             generated, was_cached = cached, True
         else:
             generated = self._generator.generate(question, passages)
@@ -134,6 +166,17 @@ class AskQuestion:
                       index=self._index.name,
                       cached=was_cached,
                       latency_ms=round((self._clock.now() - t0) * 1000.0, 3))
+
+    @staticmethod
+    def _still_grounded(cached: Generated, passages: Sequence[Passage]) -> bool:
+        """Whether a cached answer's markers all resolve against today's retrieval.
+
+        They used to be resolved silently: any marker past the end of the current hit list was
+        dropped, and the cached prose was served with its citations quietly removed. Serving
+        an answer with fewer sources than it was written with is worse than recomputing it,
+        so a cached entry that no longer resolves is treated as a miss.
+        """
+        return all(1 <= marker <= len(passages) for marker in cached.cited)
 
     @staticmethod
     def _citations(generated: Generated, passages: Sequence[Passage]) -> tuple[Citation, ...]:
