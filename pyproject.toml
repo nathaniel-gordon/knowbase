@@ -7,12 +7,14 @@ name = "knowbase"
 version = "0.1.0"
 description = "Hexagonal enterprise knowledge-base RAG: JSON microservice + typed client SDK"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = ["numpy", "scikit-learn"]
 
 [project.optional-dependencies]
 llm = ["anthropic"]
-dev = ["pytest"]
+dev = ["pytest", "pytest-cov", "ruff", "mypy"]
 
 [project.scripts]
 knowbase = "knowbase.__main__:main"
