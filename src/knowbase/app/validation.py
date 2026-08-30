@@ -267,10 +267,16 @@ class RequestValidator:
             if unknown:
                 raise ValidationError(f"'cases[{position}]' has unknown field(s): {unknown}",
                                       field="cases", position=position)
-            question = as_str(_field(item, "question"), f"cases[{position}].question",
-                              max_chars=self.limits.max_question_chars)
-            expected = as_str(_field(item, "expected_doc_id"),
-                              f"cases[{position}].expected_doc_id",
-                              max_chars=self.limits.max_doc_id_chars)
+            try:
+                question = as_str(_field(item, "question"), f"cases[{position}].question",
+                                  max_chars=self.limits.max_question_chars)
+                expected = as_str(_field(item, "expected_doc_id"),
+                                  f"cases[{position}].expected_doc_id",
+                                  max_chars=self.limits.max_doc_id_chars)
+            except ValidationError as exc:
+                # Which row is wrong is the first thing a caller wants to know when they post
+                # a suite of 500, so the position travels with the rejection.
+                exc.details["position"] = position
+                raise
             out.append(EvalCase(question=question, expected_doc_id=expected))
         return tuple(out)
