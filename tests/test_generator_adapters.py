@@ -19,6 +19,7 @@ from contracts.generator_contract import (
 from knowbase.adapters.generator.claude import ClaudeGenerator, anthropic_completion
 from knowbase.adapters.generator.extractive import ExtractiveGenerator
 from knowbase.domain.errors import AdapterUnavailable
+from knowbase.domain.model import Passage
 from knowbase.domain.text import tokenize
 from knowbase.domain.usecases import ABSTENTION
 
@@ -78,6 +79,25 @@ class TestExtractiveGenerator(GeneratorContract):
         generator = ExtractiveGenerator()
         result = generator.generate("zzzz qqqq wwww", [LEAVE_PASSAGE])
         assert result.text == ABSTENTION and result.cited == ()
+
+    def test_a_lower_ranked_passage_does_not_tie_its_way_into_the_answer(self):
+        """The refund/shipping case from the demo, pinned.
+
+        Both sentences share exactly one content token with the question ('refund' and
+        'takes'), so raw overlap cannot separate them and the shipping sentence used to be
+        appended to the answer -- and cited. The only evidence available is that the index
+        ranked refund first, which is what the rank decay spends.
+        """
+        refund = Passage(
+            doc_id="refund", ordinal=0, title="Refund Policy", origin="fixture://refund",
+            text="Refunds are issued within 14 business days of an approved request.")
+        shipping = Passage(
+            doc_id="shipping", ordinal=0, title="Shipping Policy", origin="fixture://shipping",
+            text="Standard shipping takes 5 business days; expedited arrives the next day.")
+        result = ExtractiveGenerator().generate("How long does a refund take?",
+                                                [refund, shipping])
+        assert result.cited == (1,), f"shipping was padded back in: {result.text!r}"
+        assert "shipping" not in result.text.lower()
 
 
 class TestClaudeGenerator(GeneratorContract):

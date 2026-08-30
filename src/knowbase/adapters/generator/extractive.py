@@ -25,7 +25,15 @@ from ...domain.usecases import ABSTENTION
 
 MIN_SENTENCE_CHARS = 25
 MAX_SENTENCES = 3
-RANK_PENALTY = 0.15
+
+#: Retrieval rank is discounted multiplicatively, not subtracted. On a small corpus an
+#: incidental verb ("how long does a refund *take*" against "shipping *takes* 5 days") gives a
+#: sentence exactly the same raw overlap as the sentence that actually answers the question,
+#: and no lexical rarity signal separates them -- the only real evidence is that the index put
+#: the other passage first. Dividing by the rank makes that evidence count: a sentence from the
+#: second passage must match the question about twice as well as the leading sentence to
+#: survive the relative floor below, instead of trailing it by a fixed 0.15.
+RANK_DECAY = 1.0
 
 #: A sentence must cover at least this share of the question's content tokens, so a single
 #: incidental word shared with a long question is not enough on its own. Kept deliberately low:
@@ -93,9 +101,9 @@ class ExtractiveGenerator:
                 overlap = len(q_tokens & set(tokenize(sentence)))
                 if overlap / len(q_tokens) < self._min_coverage:
                     continue
-                # Rank penalty: a weaker sentence from the top passage still beats an equally
+                # Rank decay: a weaker sentence from the top passage still beats an equally
                 # matching sentence from a passage the index ranked far lower.
-                scored.append((overlap - RANK_PENALTY * idx, idx, seq, sentence))
+                scored.append((overlap / (1.0 + RANK_DECAY * idx), idx, seq, sentence))
                 seq += 1
         return scored
 
