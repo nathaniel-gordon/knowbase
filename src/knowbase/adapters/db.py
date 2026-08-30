@@ -20,10 +20,12 @@ and ``foreign_keys`` is switched on explicitly because SQLite leaves it off by d
 from __future__ import annotations
 
 import sqlite3
+import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Iterator, Sequence
 
 from ..domain.errors import CorpusStoreUnavailable
 
@@ -95,9 +97,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 def connect(path: str | Path) -> sqlite3.Connection:
     """Open a connection with the pragmas this service depends on.
 
-    ``check_same_thread=False`` is deliberate: the HTTP server is threaded and every write in
-    this codebase is a single short statement committed immediately, which SQLite serialises
-    internally. ``tests/test_concurrency.py`` is what turns that from a claim into a fact.
+    ``check_same_thread=False`` is deliberate -- the HTTP server is threaded -- but it is not
+    on its own sufficient. Cross-thread use goes through :class:`Database`, which serialises
+    access; see the note there for what a shared connection actually guarantees.
     """
     target = str(path)
     if target != ":memory:":
@@ -163,3 +165,45 @@ def open_database(path: str | Path) -> sqlite3.Connection:
         conn.close()
         raise
     return conn
+
+
+class Database:
+    """A migrated connection plus the lock that makes it usable from several threads.
+
+    The cache adapter used to carry a comment claiming sqlite's own locking was enough for a
+    shared connection. It is not, and ``tests/test_concurrency.py`` shows why: sqlite
+    serialises *statements*, but a transaction belongs to the connection, so two threads
+    entering ``with conn:`` at once interleave one another's commits and a row that was just
+    written can be missing on the next read.
+
+    Serialising here is the cheap fix and the right one for this workload: every statement is
+    short and the alternative -- a connection per thread -- buys nothing when the writes are
+    single-row upserts.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self._conn = open_database(path)
+        self._lock = threading.RLock()
+
+    def query(self, sql: str, params: tuple[object, ...] = ()) -> list[tuple[Any, ...]]:
+        with self._lock:
+            return self._conn.execute(sql, params).fetchall()
+
+    def query_one(self, sql: str, params: tuple[object, ...] = ()) -> tuple[Any, ...] | None:
+        with self._lock:
+            return self._conn.execute(sql, params).fetchone()
+
+    def write(self, sql: str, params: tuple[object, ...] = ()) -> int:
+        """Run one statement in its own transaction; returns the affected row count."""
+        with self._lock, self._conn:
+            return int(self._conn.execute(sql, params).rowcount)
+
+    @contextmanager
+    def transaction(self) -> "Iterator[sqlite3.Connection]":
+        """Hold the lock and one transaction for a multi-statement write."""
+        with self._lock, self._conn:
+            yield self._conn
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()

@@ -6,7 +6,7 @@ sqlite client, and so a cache file can never execute anything when it is read ba
 
 The schema is owned by ``adapters/db.py`` and reached through its migration runner, not by a
 ``CREATE TABLE IF NOT EXISTS`` here: a cache that silently mis-reads a changed schema returns
-wrong answers rather than failing.
+wrong answers rather than failing. Thread safety is owned there too.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from pathlib import Path
 from ...domain.errors import CorpusStoreUnavailable
 from ...domain.model import CacheStats, Generated
 from ...ports import ClockPort
-from ..db import open_database
+from ..db import Database
 
 
 class SqliteCache:
@@ -29,15 +29,15 @@ class SqliteCache:
     def __init__(self, clock: ClockPort, path: str | Path = ":memory:") -> None:
         self._clock = clock
         self._path = str(path)
-        self._conn = open_database(self._path)
-        # SQLite serialises the statements; the counters are plain Python ints and do not.
+        self._db = Database(self._path)
+        # The database serialises its own statements; these two ints do not.
         self._lock = threading.Lock()
         self._hits = 0
         self._misses = 0
 
     def get(self, key: str) -> Generated | None:
-        row = self._query(
-            "SELECT text, cited, expires_at FROM answers WHERE key = ?", (key,)).fetchone()
+        row = self._read_one(
+            "SELECT text, cited, expires_at FROM answers WHERE key = ?", (key,))
         if row is None:
             self._count(hit=False)
             return None
@@ -60,20 +60,21 @@ class SqliteCache:
             (key, value.text, json.dumps(list(value.cited)), now, expires_at))
 
     def delete(self, key: str) -> bool:
-        return self._write("DELETE FROM answers WHERE key = ?", (key,)).rowcount > 0
+        return self._write("DELETE FROM answers WHERE key = ?", (key,)) > 0
 
     def clear(self) -> None:
         self._write("DELETE FROM answers")
 
     def stats(self) -> CacheStats:
-        (entries,) = self._query("SELECT COUNT(*) FROM answers").fetchone()
+        row = self._read_one("SELECT COUNT(*) FROM answers")
+        entries = int(row[0]) if row else 0
         with self._lock:
-            return CacheStats(name=self.name, entries=int(entries),
+            return CacheStats(name=self.name, entries=entries,
                               hits=self._hits, misses=self._misses)
 
     def close(self) -> None:
         """Release the connection; the service calls this on shutdown (Windows file locks)."""
-        self._conn.close()
+        self._db.close()
 
     # --------------------------------------------------------------- internals
 
@@ -84,17 +85,16 @@ class SqliteCache:
             else:
                 self._misses += 1
 
-    def _query(self, sql: str, params: tuple[object, ...] = ()) -> sqlite3.Cursor:
+    def _read_one(self, sql: str, params: tuple[object, ...] = ()) -> tuple[object, ...] | None:
         try:
-            return self._conn.execute(sql, params)
+            return self._db.query_one(sql, params)
         except sqlite3.Error as exc:
             raise CorpusStoreUnavailable("the answer cache cannot be read",
                                          reason=type(exc).__name__) from exc
 
-    def _write(self, sql: str, params: tuple[object, ...] = ()) -> sqlite3.Cursor:
+    def _write(self, sql: str, params: tuple[object, ...] = ()) -> int:
         try:
-            with self._conn:
-                return self._conn.execute(sql, params)
+            return self._db.write(sql, params)
         except sqlite3.Error as exc:
             raise CorpusStoreUnavailable("the answer cache cannot be written",
                                          reason=type(exc).__name__) from exc

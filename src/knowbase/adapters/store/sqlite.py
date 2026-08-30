@@ -7,7 +7,7 @@ of corpus B are both readable.
 
 Every statement binds its parameters. There is no string interpolation into SQL anywhere in
 this file, and the values stored are plain text -- no pickle, so a corpus file cannot execute
-anything when it is read back.
+anything when it is read back. Cross-thread access is serialised by :class:`Database`.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pathlib import Path
 from ...domain.errors import CorpusStoreUnavailable
 from ...domain.model import CorpusSnapshot, Passage
 from ...ports import ClockPort
-from ..db import open_database
+from ..db import Database
 
 
 class SqliteCorpusStore:
@@ -28,21 +28,21 @@ class SqliteCorpusStore:
     def __init__(self, clock: ClockPort, path: str | Path = ":memory:") -> None:
         self._clock = clock
         self._path = str(path)
-        self._conn = open_database(self._path)
+        self._db = Database(self._path)
 
     def save(self, snapshot: CorpusSnapshot) -> None:
         rows = [(position, 1, p.doc_id, p.ordinal, p.title, p.origin, p.text)
                 for position, p in enumerate(snapshot.passages)]
         try:
-            with self._conn:
-                self._conn.execute("DELETE FROM corpus_snapshot")
-                self._conn.execute(
+            with self._db.transaction() as conn:
+                conn.execute("DELETE FROM corpus_snapshot")
+                conn.execute(
                     "INSERT INTO corpus_snapshot "
                     "(id, fingerprint, source, documents, started_at, saved_at) "
                     "VALUES (1, ?, ?, ?, ?, ?)",
                     (snapshot.fingerprint, snapshot.source, snapshot.documents,
                      snapshot.started_at, self._clock.now()))
-                self._conn.executemany(
+                conn.executemany(
                     "INSERT INTO passage "
                     "(position, snapshot_id, doc_id, ordinal, title, origin, text) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
@@ -52,14 +52,13 @@ class SqliteCorpusStore:
 
     def load(self) -> CorpusSnapshot | None:
         try:
-            header = self._conn.execute(
+            header = self._db.query_one(
                 "SELECT fingerprint, source, documents, started_at "
-                "FROM corpus_snapshot WHERE id = 1").fetchone()
+                "FROM corpus_snapshot WHERE id = 1")
             if header is None:
                 return None
-            rows = self._conn.execute(
-                "SELECT doc_id, ordinal, text, title, origin FROM passage "
-                "ORDER BY position").fetchall()
+            rows = self._db.query(
+                "SELECT doc_id, ordinal, text, title, origin FROM passage ORDER BY position")
         except sqlite3.Error as exc:
             raise CorpusStoreUnavailable("cannot read the corpus snapshot",
                                          reason=type(exc).__name__) from exc
@@ -75,20 +74,19 @@ class SqliteCorpusStore:
 
     def clear(self) -> None:
         try:
-            with self._conn:
-                self._conn.execute("DELETE FROM corpus_snapshot")
+            self._db.write("DELETE FROM corpus_snapshot")
         except sqlite3.Error as exc:
             raise CorpusStoreUnavailable("cannot clear the corpus snapshot",
                                          reason=type(exc).__name__) from exc
 
     def size(self) -> int:
         try:
-            (count,) = self._conn.execute("SELECT COUNT(*) FROM passage").fetchone()
+            row = self._db.query_one("SELECT COUNT(*) FROM passage")
         except sqlite3.Error as exc:
             raise CorpusStoreUnavailable("cannot read the corpus snapshot",
                                          reason=type(exc).__name__) from exc
-        return int(count)
+        return int(row[0]) if row else 0
 
     def close(self) -> None:
         """Release the connection; the service calls this on shutdown (Windows file locks)."""
-        self._conn.close()
+        self._db.close()
