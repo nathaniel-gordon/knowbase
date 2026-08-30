@@ -6,8 +6,8 @@ inside the hexagon noticing.
 """
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from ..adapters import (
     CACHE_ADAPTERS,
@@ -54,7 +54,8 @@ from .validation import CompareRequest, EvalRequest, IngestRequest
 
 def build_clock(name: str) -> ClockPort:
     try:
-        return CLOCK_ADAPTERS[name]()
+        clock: ClockPort = CLOCK_ADAPTERS[name]()
+        return clock
     except KeyError:
         raise UnknownStrategyError(
             f"unknown clock adapter {name!r}; available: {sorted(CLOCK_ADAPTERS)}",

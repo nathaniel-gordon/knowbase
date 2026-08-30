@@ -8,7 +8,7 @@ number of index adapters because it only ever sees :class:`IndexPort`.
 from __future__ import annotations
 
 import hashlib
-from typing import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from ..ports import (
     CachePort,
@@ -212,7 +212,8 @@ class EvaluateRetrieval:
         rows: list[EvalRow] = []
         for case in cases:
             doc_order = self._document_order(case.question, k)
-            rank = doc_order.index(case.expected_doc_id) + 1 if case.expected_doc_id in doc_order else 0
+            found = case.expected_doc_id in doc_order
+            rank = doc_order.index(case.expected_doc_id) + 1 if found else 0
             if rank:
                 hitk += 1
                 mrr += 1.0 / rank

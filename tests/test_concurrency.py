@@ -13,11 +13,11 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from knowbase.adapters.cache.memory import InMemoryCache
+from knowbase.adapters.cache.sqlite import SqliteCache
 from knowbase.adapters.index.bm25_only import Bm25Index
 from knowbase.adapters.index.hybrid_rrf import HybridRrfIndex
 from knowbase.adapters.index.tfidf_only import TfidfIndex
-from knowbase.adapters.cache.memory import InMemoryCache
-from knowbase.adapters.cache.sqlite import SqliteCache
 from knowbase.app.client import ServiceError, running_service
 from knowbase.app.config import AppConfig
 from knowbase.domain.model import Generated, Passage
@@ -53,7 +53,7 @@ def test_search_never_sees_a_half_built_index(factory):
                     # Every hit of one search must come from one generation. A mixed result is
                     # the corruption this test exists to catch.
                     seen.append({h.passage.title for h in hits})
-        except BaseException as exc:  # noqa: BLE001 - the whole point is to collect it
+        except BaseException as exc:
             failures.append(exc)
 
     readers = [threading.Thread(target=read, name=f"reader-{i}") for i in range(READERS)]
@@ -89,7 +89,7 @@ def test_ask_and_ingest_can_run_at_the_same_time(corpus_roots):
                 except ServiceError as exc:
                     if exc.code != "corpus_not_ingested":
                         errors.append(f"{exc.code}: {exc.message}")
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     errors.append(repr(exc))
 
         with ThreadPoolExecutor(max_workers=READERS) as pool:

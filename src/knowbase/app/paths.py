@@ -12,8 +12,8 @@ resolved paths only -- a string prefix test would accept ``/corpus-evil`` for ro
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from ..domain.errors import PathNotAllowed, ValidationError
 

@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from knowbase.__main__ import main  # noqa: E402  (path must be set before the import)
+from knowbase.__main__ import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -13,9 +13,10 @@ import json
 import threading
 import urllib.error
 import urllib.request
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any
 
 from .config import AppConfig
 from .service import API_PREFIX, create_server
@@ -148,7 +149,8 @@ class KbClient:
                                          headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
-                return json.loads(response.read().decode("utf-8"))
+                decoded: dict[str, Any] = json.loads(response.read().decode("utf-8"))
+                return decoded
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", errors="replace")
             try:

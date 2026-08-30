@@ -10,9 +10,10 @@ at start-up, not silently run with a default nobody chose.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from .limits import Limits
 
@@ -36,7 +37,7 @@ class AppConfig:
     overlap: int = 25
     limits: Limits = field(default_factory=Limits)
 
-    def with_(self, **changes: Any) -> "AppConfig":
+    def with_(self, **changes: Any) -> AppConfig:
         """Return a copy with the given fields replaced (config objects stay immutable)."""
         for name in ("compare_indexes", "corpus_roots"):
             if changes.get(name) is not None and name in changes:
@@ -60,7 +61,7 @@ class AppConfig:
         }
 
     @classmethod
-    def from_mapping(cls, data: Mapping[str, Any]) -> "AppConfig":
+    def from_mapping(cls, data: Mapping[str, Any]) -> AppConfig:
         known = set(cls.__slots__)
         unknown = sorted(set(data) - known)
         if unknown:
@@ -74,5 +75,5 @@ class AppConfig:
         return cls(**kwargs)
 
     @classmethod
-    def from_json_file(cls, path: str | Path) -> "AppConfig":
+    def from_json_file(cls, path: str | Path) -> AppConfig:
         return cls.from_mapping(json.loads(Path(path).read_text(encoding="utf-8")))

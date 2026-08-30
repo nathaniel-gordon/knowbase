@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import Sequence
+from collections.abc import Sequence
 
 from .app.config import AppConfig
 from .app.demo import main as demo_main

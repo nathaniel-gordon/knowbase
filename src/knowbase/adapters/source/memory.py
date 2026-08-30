@@ -5,7 +5,7 @@ and the one tests use to build fixture corpora without touching disk.
 """
 from __future__ import annotations
 
-from typing import Iterator, Mapping
+from collections.abc import Iterator, Mapping
 
 from ...domain.errors import DocumentSourceUnavailable
 from ...domain.model import Document

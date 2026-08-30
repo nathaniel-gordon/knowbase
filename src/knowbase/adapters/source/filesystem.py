@@ -7,8 +7,8 @@ service against a threaded server, not a convenience.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Iterator, Sequence
 
 from ...domain.errors import DocumentSourceUnavailable, ResourceLimitExceeded
 from ...domain.model import Document

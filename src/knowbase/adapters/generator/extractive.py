@@ -17,7 +17,7 @@ mechanism then rubber-stamped the IT security policy as a source.
 from __future__ import annotations
 
 import re
-from typing import Sequence
+from collections.abc import Sequence
 
 from ...domain.model import Generated, Passage
 from ...domain.text import sentences, tokenize
@@ -111,5 +111,5 @@ class ExtractiveGenerator:
         """
         text = _HEADING_MARK_RE.sub("", sentence.strip())
         if title and text.lower().startswith(title.lower()):
-            text = text[len(title):].lstrip(" :-–—")
+            text = text[len(title):].lstrip(" :-" + "\u2013\u2014")
         return text.strip()

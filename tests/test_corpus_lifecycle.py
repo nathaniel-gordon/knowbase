@@ -211,9 +211,8 @@ def test_health_reports_the_restored_corpus_over_http(tmp_path, corpus_roots):
 
 def test_asking_before_any_ingest_still_conflicts(corpus_roots):
     config = AppConfig(clock="frozen", generator="extractive", corpus_roots=corpus_roots)
-    with running_service(config) as client:
-        with pytest.raises(ServiceError) as excinfo:
-            client.ask(QUESTION)
+    with running_service(config) as client, pytest.raises(ServiceError) as excinfo:
+        client.ask(QUESTION)
     assert excinfo.value.code == "corpus_not_ingested"
 
 

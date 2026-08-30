@@ -28,9 +28,10 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections.abc import Callable, Mapping
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable, Mapping
+from typing import Any, cast
 
 from ..domain.errors import (
     AdapterUnavailable,
@@ -111,7 +112,14 @@ class KbHTTPServer(ThreadingHTTPServer):
 
     @property
     def url(self) -> str:
+        """Loopback URL of the bound socket.
+
+        ``server_address`` is a str/int pair only for AF_INET; decoding defensively keeps a
+        UNIX-socket family from rendering as ``b'/tmp/sock'`` in the URL the SDK connects to.
+        """
         host, port = self.server_address[0], self.server_address[1]
+        if isinstance(host, bytes):
+            host = host.decode("utf-8", errors="replace")
         return f"http://{host}:{port}"
 
 
@@ -130,17 +138,22 @@ class KbRequestHandler(BaseHTTPRequestHandler):
         """Suppress the stdlib access line; the structured line in ``_dispatch`` replaces it."""
 
     @property
+    def kb(self) -> KbHTTPServer:
+        """The server that owns this handler, typed. ``BaseServer`` knows none of our fields."""
+        return cast(KbHTTPServer, self.server)
+
+    @property
     def container(self) -> Container:
-        return self.server.container  # type: ignore[attr-defined]
+        return self.kb.container
 
     @property
     def validator(self) -> RequestValidator:
-        return self.server.validator  # type: ignore[attr-defined]
+        return self.kb.validator
 
     def setup(self) -> None:
         # Without a socket timeout a client that opens a connection and never finishes a
         # request holds a worker thread forever -- the classic slowloris.
-        self.timeout = self.container.limits.request_timeout_s
+        self.request.settimeout(self.container.limits.request_timeout_s)
         super().setup()
 
     def _send(self, status: HTTPStatus | int, payload: Mapping[str, Any]) -> None:
@@ -208,7 +221,7 @@ class KbRequestHandler(BaseHTTPRequestHandler):
             if handler is None:
                 raise _NoSuchEndpoint(path, sorted(routes))
             if path not in self.OPEN_ROUTES:
-                self.server.auth.authorise(self.headers.get("Authorization"))  # type: ignore[attr-defined]
+                self.kb.auth.authorise(self.headers.get("Authorization"))
             body = self._read_json() if method == "POST" else {}
             payload, facts = _split(handler(body))
             status = HTTPStatus(facts.pop("status", HTTPStatus.OK))
@@ -222,7 +235,7 @@ class KbRequestHandler(BaseHTTPRequestHandler):
             self._send_error(status, exc.code, exc.message, exc.details)
             if status >= HTTPStatus.INTERNAL_SERVER_ERROR:
                 get_logger().error("request_failed", extra={"code": exc.code, "route": path})
-        except Exception:
+        except Exception:  # noqa: BLE001 - the last line of defence for the whole handler
             # Nothing internal reaches the wire. The traceback goes to the log, under the same
             # request id the client was handed, which is the only way to connect the two.
             status = HTTPStatus.INTERNAL_SERVER_ERROR
@@ -231,20 +244,20 @@ class KbRequestHandler(BaseHTTPRequestHandler):
                              "the service failed to handle this request")
         finally:
             duration_ms = round((time.perf_counter() - started) * 1000.0, 3)
-            self.server.metrics.observe(path, int(status), duration_ms)  # type: ignore[attr-defined]
+            self.kb.metrics.observe(path, int(status), duration_ms)
             get_logger().info("request", extra=redact([
                 ("method", method), ("route", path), ("status", int(status)),
                 ("duration_ms", duration_ms), *facts.items(),
             ]))
 
-    def do_GET(self) -> None:  # noqa: N802 - stdlib naming
+    def do_GET(self) -> None:
         self._dispatch({"/": self._index,
                         "/health": self._health,
                         "/ready": self._ready,
                         "/metrics": self._metrics,
                         f"{API_PREFIX}/adapters": self._adapters}, "GET")
 
-    def do_POST(self) -> None:  # noqa: N802 - stdlib naming
+    def do_POST(self) -> None:
         self._dispatch({f"{API_PREFIX}/ingest": self._ingest,
                         f"{API_PREFIX}/ask": self._ask,
                         f"{API_PREFIX}/eval": self._eval,
@@ -258,7 +271,7 @@ class KbRequestHandler(BaseHTTPRequestHandler):
                 "operational": ["/health", "/ready", "/metrics"],
                 "endpoints": [f"{API_PREFIX}/{name}" for name in
                               ("adapters", "ingest", "ask", "eval", "compare", "config")],
-                "authentication": "bearer" if self.server.auth.enabled else "none"}  # type: ignore[attr-defined]
+                "authentication": "bearer" if self.kb.auth.enabled else "none"}
 
     def _health(self, _: dict[str, Any]) -> dict[str, Any]:
         c = self.container
@@ -282,7 +295,7 @@ class KbRequestHandler(BaseHTTPRequestHandler):
     def _metrics(self, _: dict[str, Any]) -> dict[str, Any]:
         c = self.container
         stats = c.cache.stats()
-        return self.server.metrics.snapshot({  # type: ignore[attr-defined]
+        return self.kb.metrics.snapshot({
             "cache": {"name": stats.name, "entries": stats.entries, "hits": stats.hits,
                       "misses": stats.misses, "hit_rate": round(stats.hit_rate, 4)},
             "corpus": {"passages": c.index.size(),
@@ -291,8 +304,14 @@ class KbRequestHandler(BaseHTTPRequestHandler):
             "wiring": c.wiring()})
 
     def _adapters(self, _: dict[str, Any]) -> dict[str, Any]:
-        from ..adapters import (CACHE_ADAPTERS, CLOCK_ADAPTERS, GENERATOR_ADAPTERS,
-                                INDEX_ADAPTERS, SOURCE_ADAPTERS, STORE_ADAPTERS)
+        from ..adapters import (
+            CACHE_ADAPTERS,
+            CLOCK_ADAPTERS,
+            GENERATOR_ADAPTERS,
+            INDEX_ADAPTERS,
+            SOURCE_ADAPTERS,
+            STORE_ADAPTERS,
+        )
         return {"ports": {"DocumentSourcePort": sorted(SOURCE_ADAPTERS),
                           "IndexPort": sorted(INDEX_ADAPTERS),
                           "GeneratorPort": sorted(GENERATOR_ADAPTERS),
@@ -303,7 +322,7 @@ class KbRequestHandler(BaseHTTPRequestHandler):
 
     def _ingest(self, body: dict[str, Any]) -> dict[str, Any]:
         request = self.validator.ingest(body)
-        with self.server.lock:  # type: ignore[attr-defined]
+        with self.kb.lock:
             report = self.container.ingest(request)
         payload = ingest_to_dict(report)
         return {**payload, "_facts": {"source": report.source, "documents": report.documents,
@@ -334,7 +353,7 @@ class KbRequestHandler(BaseHTTPRequestHandler):
 
     def _config(self, body: dict[str, Any]) -> dict[str, Any]:
         request = self.validator.configure(body)
-        with self.server.lock:  # type: ignore[attr-defined]
+        with self.kb.lock:
             changes = self.container.rebind(index=request.index, generator=request.generator,
                                             cache=request.cache)
         return {"changed": changes, "wiring": self.container.wiring(),

@@ -22,10 +22,11 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Sequence
+from typing import Any
 
 from ..domain.errors import CorpusStoreUnavailable
 
@@ -191,7 +192,8 @@ class Database:
 
     def query_one(self, sql: str, params: tuple[object, ...] = ()) -> tuple[Any, ...] | None:
         with self._lock:
-            return self._conn.execute(sql, params).fetchone()
+            row: tuple[Any, ...] | None = self._conn.execute(sql, params).fetchone()
+        return row
 
     def write(self, sql: str, params: tuple[object, ...] = ()) -> int:
         """Run one statement in its own transaction; returns the affected row count."""
@@ -199,7 +201,7 @@ class Database:
             return int(self._conn.execute(sql, params).rowcount)
 
     @contextmanager
-    def transaction(self) -> "Iterator[sqlite3.Connection]":
+    def transaction(self) -> Iterator[sqlite3.Connection]:
         """Hold the lock and one transaction for a multi-statement write."""
         with self._lock, self._conn:
             yield self._conn

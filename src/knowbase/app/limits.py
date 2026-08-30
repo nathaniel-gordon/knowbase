@@ -10,8 +10,9 @@ deliberately rather than discovering there was never a ceiling.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Any, Mapping
+from typing import Any
 
 KIB = 1024
 MIB = 1024 * 1024
@@ -50,14 +51,14 @@ class Limits:
     # --- eval
     max_eval_cases: int = 500
 
-    def with_(self, **changes: Any) -> "Limits":
+    def with_(self, **changes: Any) -> Limits:
         return replace(self, **changes)
 
     def to_dict(self) -> dict[str, Any]:
         return {f: getattr(self, f) for f in self.__slots__}
 
     @classmethod
-    def from_mapping(cls, data: Mapping[str, Any]) -> "Limits":
+    def from_mapping(cls, data: Mapping[str, Any]) -> Limits:
         unknown = sorted(set(data) - set(cls.__slots__))
         if unknown:
             raise ValueError(f"unknown limit(s): {unknown}")

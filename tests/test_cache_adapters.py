@@ -24,7 +24,7 @@ class TestSqliteCache(CacheContract):
         adapter.close()
 
     def test_entries_are_readable_by_any_sqlite_client(self, frozen_clock, tmp_path):
-        """Durability is the reason this adapter exists; prove the rows are plain and inspectable."""
+        """Durability is the point of this adapter; prove the rows are plain and readable."""
         path = tmp_path / "durable.sqlite3"
         adapter = SqliteCache(frozen_clock, path)
         adapter.set("k", VALUE)

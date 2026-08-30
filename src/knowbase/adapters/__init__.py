@@ -1,14 +1,15 @@
 """Driven adapters -- the outside of the hexagon.
 
-Every module here implements exactly one port and may import ``knowbase.domain`` and ``knowbase.ports``.
-Nothing in ``knowbase.domain`` may import anything from this package; the arrow points inward only.
+Every module here implements exactly one port and may import ``knowbase.domain`` and
+``knowbase.ports``. Nothing in ``knowbase.domain`` may import anything from this package;
+the arrow points inward only.
 
 The dictionaries below are the registries the composition root consults, so adding an adapter
 is a one-line change in one file and requires no edit to any use-case.
 """
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from .cache.memory import InMemoryCache
 from .cache.sqlite import SqliteCache
@@ -18,11 +19,11 @@ from .generator.extractive import ExtractiveGenerator
 from .index.bm25_only import Bm25Index
 from .index.hybrid_rrf import HybridRrfIndex
 from .index.tfidf_only import TfidfIndex
-from .store.memory import InMemoryCorpusStore
-from .store.sqlite import SqliteCorpusStore
 from .source.filesystem import FilesystemDocumentSource
 from .source.memory import InMemoryDocumentSource
 from .source.zip_archive import ZipDocumentSource
+from .store.memory import InMemoryCorpusStore
+from .store.sqlite import SqliteCorpusStore
 
 INDEX_ADAPTERS: dict[str, Callable[[], object]] = {
     HybridRrfIndex.name: HybridRrfIndex,
@@ -54,9 +55,25 @@ CLOCK_ADAPTERS: dict[str, type] = {
 GENERATOR_ADAPTERS: tuple[str, ...] = (ExtractiveGenerator.name, ClaudeGenerator.name)
 
 __all__ = [
-    "Bm25Index", "CACHE_ADAPTERS", "CLOCK_ADAPTERS", "ClaudeGenerator", "ExtractiveGenerator",
-    "FilesystemDocumentSource", "FrozenClock", "GENERATOR_ADAPTERS", "HybridRrfIndex",
-    "INDEX_ADAPTERS", "InMemoryCache", "InMemoryCorpusStore", "InMemoryDocumentSource",
-    "SOURCE_ADAPTERS", "STORE_ADAPTERS", "SqliteCache", "SqliteCorpusStore", "SystemClock",
-    "TfidfIndex", "ZipDocumentSource", "anthropic_completion",
+    "CACHE_ADAPTERS",
+    "CLOCK_ADAPTERS",
+    "GENERATOR_ADAPTERS",
+    "INDEX_ADAPTERS",
+    "SOURCE_ADAPTERS",
+    "STORE_ADAPTERS",
+    "Bm25Index",
+    "ClaudeGenerator",
+    "ExtractiveGenerator",
+    "FilesystemDocumentSource",
+    "FrozenClock",
+    "HybridRrfIndex",
+    "InMemoryCache",
+    "InMemoryCorpusStore",
+    "InMemoryDocumentSource",
+    "SqliteCache",
+    "SqliteCorpusStore",
+    "SystemClock",
+    "TfidfIndex",
+    "ZipDocumentSource",
+    "anthropic_completion",
 ]

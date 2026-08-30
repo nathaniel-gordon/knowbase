@@ -182,7 +182,7 @@ def test_the_question_text_never_reaches_the_log(corpus_roots):
     finally:
         configure_logging("INFO")
     assert secret not in rendered
-    assert '"question_chars": %d' % len(secret) in rendered
+    assert f'"question_chars": {len(secret)}' in rendered
 
 
 def test_a_failing_request_logs_the_id_the_client_was_given(corpus_roots):
@@ -228,7 +228,7 @@ def test_the_formatter_promotes_extras_to_top_level_fields():
 
 
 def test_configuring_logging_twice_does_not_double_the_output():
-    stream, logger = _capture()
+    stream, _ = _capture()
     try:
         configure_logging("INFO", stream)
         get_logger().info("once")

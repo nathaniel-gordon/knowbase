@@ -19,9 +19,10 @@ import sys
 import threading
 import time
 from bisect import bisect_left
+from collections.abc import Iterable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 LOGGER_NAME = "knowbase"
 
@@ -120,7 +121,7 @@ class RouteMetrics:
             return 0.0
         target = q * self.requests
         seen = 0
-        for edge, count in zip(BUCKETS_MS, self.buckets):
+        for edge, count in zip(BUCKETS_MS, self.buckets, strict=False):
             seen += count
             if seen >= target:
                 return float(edge)
@@ -135,7 +136,8 @@ class RouteMetrics:
             "max_ms": round(self.max_ms, 3),
             "p50_ms_upper_bound": self.quantile(0.50),
             "p95_ms_upper_bound": self.quantile(0.95),
-            "buckets_ms": dict(zip([str(int(b)) for b in BUCKETS_MS], self.buckets)),
+            "buckets_ms": dict(zip([str(int(b)) for b in BUCKETS_MS], self.buckets,
+                                   strict=False)),
             "over_bucket_ms": self.buckets[-1],
         }
 

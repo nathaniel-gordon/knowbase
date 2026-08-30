@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -34,8 +34,8 @@ class LexicalIndexState:
     """
 
     passages: tuple[Passage, ...]
-    bm25: "BM25 | None" = None
-    tfidf: "TfidfCosine | None" = None
+    bm25: BM25 | None = None
+    tfidf: TfidfCosine | None = None
 
 
 class BM25:
@@ -95,7 +95,8 @@ class TfidfCosine:
                 reason="empty_vocabulary") from exc
 
     def scores(self, query: str) -> np.ndarray:
-        return cosine_similarity(self.vectorizer.transform([query]), self.matrix).ravel()
+        similarity = cosine_similarity(self.vectorizer.transform([query]), self.matrix)
+        return np.asarray(similarity).ravel()
 
 
 def reciprocal_rank_fusion(score_lists: Sequence[np.ndarray], rrf_k: int = 60) -> dict[int, float]:

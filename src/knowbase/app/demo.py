@@ -7,10 +7,10 @@ produce.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
-from .client import KbClient, running_service
+from .client import EvalView, KbClient, running_service
 from .config import AppConfig
 from .corpus import write_demo_corpus
 
@@ -103,7 +103,8 @@ def run_demo(output_dir: Path, deterministic: bool = True) -> int:
     return 0
 
 
-def _summarise(client: KbClient, core_before, core_after, hard_after) -> None:
+def _summarise(client: KbClient, core_before: EvalView, core_after: EvalView,
+               hard_after: EvalView) -> None:
     """Print what this run measured, before and after the index was swapped and swapped back."""
     print(f"   core suite  hit@1 {core_before.hit_at_1:.3f} -> {core_after.hit_at_1:.3f}, "
           f"mrr {core_before.mrr:.3f} -> {core_after.mrr:.3f}  (hybrid_rrf, both times)")

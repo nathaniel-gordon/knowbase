@@ -12,8 +12,8 @@ a bomb lies in its header.
 from __future__ import annotations
 
 import zipfile
+from collections.abc import Iterator, Sequence
 from pathlib import Path, PurePosixPath
-from typing import Iterator, Sequence
 
 from ...domain.errors import DocumentSourceUnavailable, ResourceLimitExceeded
 from ...domain.model import Document

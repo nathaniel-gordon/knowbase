@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Sequence
+from collections.abc import Sequence
 
 from .model import Document, Passage
 
@@ -23,10 +23,11 @@ DEFAULT_TARGET_WORDS = 120
 DEFAULT_OVERLAP = 25
 
 STOPWORDS = frozenset(
-    "a an the and or but if then else for to of in on at by with from as is are was were be been "
-    "this that these those it its they them their we you your i he she his her not no do does did "
-    "can could should would will shall may might must have has had what which who whom how when "
-    "where why all each any both more most other some such only own same so than too very".split()
+    "a an the and or but if then else for to of in on at by with from as is are was "
+    "were be been this that these those it its they them their we you your i he she "
+    "his her not no do does did can could should would will shall may might must have "
+    "has had what which who whom how when where why all each any both more most other "
+    "some such only own same so than too very".split()
 )
 
 

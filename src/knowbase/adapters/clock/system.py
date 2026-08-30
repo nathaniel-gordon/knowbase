@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 class SystemClock:
@@ -14,7 +14,7 @@ class SystemClock:
         return time.time()
 
     def timestamp(self) -> str:
-        return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 class FrozenClock:
@@ -37,4 +37,4 @@ class FrozenClock:
         return current
 
     def timestamp(self) -> str:
-        return datetime.fromtimestamp(self._t, tz=timezone.utc).isoformat(timespec="milliseconds")
+        return datetime.fromtimestamp(self._t, tz=UTC).isoformat(timespec="milliseconds")

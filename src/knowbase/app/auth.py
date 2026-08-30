@@ -54,7 +54,7 @@ class Authenticator:
         return bool(self.token)
 
     @classmethod
-    def from_environment(cls, token: str | None = None) -> "Authenticator":
+    def from_environment(cls, token: str | None = None) -> Authenticator:
         """Read the token from the environment unless one is passed in (tests do that)."""
         raw = (token if token is not None else os.environ.get(TOKEN_ENV_VAR, "")).strip()
         if raw and len(raw) < MIN_TOKEN_CHARS:

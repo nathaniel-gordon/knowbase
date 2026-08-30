@@ -11,7 +11,11 @@ from knowbase.app.config import AppConfig
 from knowbase.app.limits import DEFAULT_LIMITS
 from knowbase.app.paths import CorpusRoots
 from knowbase.app.validation import IngestRequest, RequestValidator
-from knowbase.domain.errors import UnknownStrategyError, ValidationError
+from knowbase.domain.errors import (
+    CorpusStoreUnavailable,
+    UnknownStrategyError,
+    ValidationError,
+)
 
 
 @pytest.fixture(scope="module")
@@ -112,5 +116,5 @@ def test_container_closes_its_sqlite_cache(tmp_path):
                                           sqlite_path=str(tmp_path / "c.sqlite3"),
                                           clock="frozen"))
     container.close()
-    with pytest.raises(Exception):
+    with pytest.raises(CorpusStoreUnavailable):
         container.cache.stats()

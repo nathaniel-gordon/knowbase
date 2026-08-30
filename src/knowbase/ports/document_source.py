@@ -1,7 +1,8 @@
 """DocumentSourcePort -- where raw knowledge-base documents come from."""
 from __future__ import annotations
 
-from typing import Iterator, Protocol, runtime_checkable
+from collections.abc import Iterator
+from typing import Protocol, runtime_checkable
 
 from ..domain.model import Document
 

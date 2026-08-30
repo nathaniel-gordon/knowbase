@@ -19,7 +19,8 @@ DOMAIN = SRC / "knowbase" / "domain"
 PORTS = SRC / "knowbase" / "ports"
 
 #: Everything the core is permitted to name. Pure computation only: no IO, no clock, no
-#: randomness, no third-party package, and above all nothing from ``knowbase.adapters`` or ``knowbase.app``.
+#: randomness, no third-party package, and above all nothing from ``knowbase.adapters``
+#: or ``knowbase.app``.
 DOMAIN_ALLOWED_ROOTS = frozenset({
     "__future__", "dataclasses", "typing", "collections", "re", "hashlib", "math", "enum",
 })
@@ -84,7 +85,9 @@ def test_domain_source_never_mentions_a_driver(module: Path):
 
 @pytest.mark.parametrize("module", _module_files(PORTS), ids=lambda p: p.name)
 def test_ports_declare_protocols_and_import_no_adapter(module: Path):
-    offenders = _imported_roots(module) - {"__future__", "typing", "dataclasses"}
+    # A port declares a shape: typing machinery, the abstract collection protocols it names in
+    # signatures, and the domain entities it passes. Nothing else.
+    offenders = _imported_roots(module) - {"__future__", "typing", "dataclasses", "collections"}
     assert not offenders, f"{module.name} imports {sorted(offenders)}"
     # A port may re-export its siblings and reach the domain for entity types. Anything else
     # -- an adapter, the app layer -- would invert the arrow. The sibling list is read off the
@@ -95,8 +98,9 @@ def test_ports_declare_protocols_and_import_no_adapter(module: Path):
 
 def test_ports_are_protocols_not_base_classes():
     """Structural typing is what lets adapters conform without inheriting from the core."""
-    import knowbase.ports as ports
     from typing import Protocol
+
+    import knowbase.ports as ports
     for name in ports.__all__:
         port = getattr(ports, name)
         assert Protocol in port.__mro__, f"{name} must be a typing.Protocol"
@@ -107,7 +111,8 @@ def test_importing_the_domain_pulls_in_no_scientific_stack():
     probe = (
         "import sys;"
         f"sys.path.insert(0, r'{SRC}');"
-        "import knowbase.domain.usecases, knowbase.domain.text, knowbase.domain.model, knowbase.ports;"
+        "import knowbase.domain.usecases, knowbase.domain.text;"
+        "import knowbase.domain.model, knowbase.ports;"
         "leaked=[m for m in ('numpy','sklearn','scipy','pandas','anthropic','sqlite3')"
         " if m in sys.modules];"
         "print('LEAKED:'+','.join(leaked) if leaked else 'PURE')"

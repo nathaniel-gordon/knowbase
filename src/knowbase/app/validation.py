@@ -12,8 +12,9 @@ the same job as parsing ``k``.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from ..domain.errors import ValidationError
 from ..domain.model import EvalCase

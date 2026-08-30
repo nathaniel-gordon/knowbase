@@ -14,6 +14,7 @@ import json
 import sqlite3
 import threading
 from pathlib import Path
+from typing import Any
 
 from ...domain.errors import CorpusStoreUnavailable
 from ...domain.model import CacheStats, Generated
@@ -85,7 +86,7 @@ class SqliteCache:
             else:
                 self._misses += 1
 
-    def _read_one(self, sql: str, params: tuple[object, ...] = ()) -> tuple[object, ...] | None:
+    def _read_one(self, sql: str, params: tuple[object, ...] = ()) -> tuple[Any, ...] | None:
         try:
             return self._db.query_one(sql, params)
         except sqlite3.Error as exc:

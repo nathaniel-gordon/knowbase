@@ -5,7 +5,7 @@ win to fusion itself rather than to one of its two components.
 """
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from ...domain.errors import EmptyCorpusError, IndexNotBuiltError
 from ...domain.model import Passage, RetrievalHit

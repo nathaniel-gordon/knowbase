@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Callable, Sequence
+from collections.abc import Callable, Sequence
 
 from ...domain.errors import AdapterUnavailable
 from ...domain.model import Generated, Passage

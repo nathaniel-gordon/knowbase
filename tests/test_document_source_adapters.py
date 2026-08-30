@@ -14,7 +14,7 @@ from contracts.document_source_contract import DocumentSourceContract
 from knowbase.adapters.source.filesystem import FilesystemDocumentSource
 from knowbase.adapters.source.memory import InMemoryDocumentSource
 from knowbase.adapters.source.zip_archive import ZipDocumentSource
-from knowbase.domain.errors import ResourceLimitExceeded
+from knowbase.domain.errors import DocumentSourceUnavailable, ResourceLimitExceeded
 
 
 class TestFilesystemDocumentSource(DocumentSourceContract):
@@ -28,7 +28,7 @@ class TestFilesystemDocumentSource(DocumentSourceContract):
 
     def test_empty_folder_is_also_unavailable(self, tmp_path):
         (tmp_path / "empty").mkdir()
-        with pytest.raises(Exception, match="no .* files under"):
+        with pytest.raises(DocumentSourceUnavailable, match=r"no .* files under"):
             list(FilesystemDocumentSource(tmp_path / "empty").documents())
 
     def test_origin_is_relative_to_the_ingest_root(self, source, fixture_dir):
