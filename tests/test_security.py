@@ -169,18 +169,26 @@ def test_k_is_capped(client, corpus_dir):
     assert excinfo.value.details["maximum"] == Limits().max_k
 
 
-def test_an_oversized_body_is_refused_before_it_is_parsed(client):
-    payload = json.dumps({"question": "x" * 20_000}).encode("utf-8")
-    config_limit = Limits(max_body_bytes=4096)
+def test_an_oversized_body_is_refused_before_it_is_parsed():
+    """Refused on the declared length alone: the megabytes are never read into memory."""
+    limits = Limits(max_body_bytes=4096)
     with running_service(AppConfig(clock="frozen", generator="extractive",
-                                   limits=config_limit)) as small:
-        request = urllib.request.Request(f"{small.base_url}/api/v1/ask", data=payload,
-                                         method="POST",
-                                         headers={"Content-Type": "application/json"})
-        with pytest.raises(urllib.error.HTTPError) as excinfo:
-            urllib.request.urlopen(request, timeout=10)
-    assert excinfo.value.code == 413
-    assert json.loads(excinfo.value.read())["error"]["code"] == "resource_limit_exceeded"
+                                   limits=limits)) as small:
+        host, _, port = small.base_url.removeprefix("http://").partition(":")
+        conn = http.client.HTTPConnection(host, int(port), timeout=10)
+        try:
+            conn.putrequest("POST", "/api/v1/ask")
+            conn.putheader("Content-Type", "application/json")
+            conn.putheader("Content-Length", "50000000")
+            conn.endheaders()
+            response = conn.getresponse()
+            status, body = response.status, json.loads(response.read())
+            closed = response.headers.get("Connection")
+        finally:
+            conn.close()
+    assert status == 413
+    assert body["error"]["code"] == "resource_limit_exceeded"
+    assert closed == "close", "an unread body must not be parsed as the next request"
 
 
 def test_a_chunked_body_is_refused_rather_than_read_as_empty(client):

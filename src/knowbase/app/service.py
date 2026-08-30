@@ -162,8 +162,13 @@ class KbRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("X-Request-Id", request_id_var.get())
+        if self.close_connection:
+            # Set when a request body was refused unread: whatever the client is still sending
+            # would be parsed as the next request on a kept-alive connection.
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
+        self.wfile.flush()
 
     def _send_error(self, status: HTTPStatus | int, code: str, message: str,
                     details: Mapping[str, Any] | None = None) -> None:
@@ -180,6 +185,7 @@ class KbRequestHandler(BaseHTTPRequestHandler):
         POST was silently read as ``{}`` and processed as if the client had sent nothing.
         """
         if self.headers.get("Transfer-Encoding"):
+            self.close_connection = True
             raise ValidationError("chunked request bodies are not supported; send "
                                   "Content-Length", header="Transfer-Encoding")
         raw_length = self.headers.get("Content-Length")
@@ -188,12 +194,17 @@ class KbRequestHandler(BaseHTTPRequestHandler):
         try:
             length = int(raw_length)
         except ValueError:
+            self.close_connection = True
             raise ValidationError("Content-Length is not an integer",
                                   header="Content-Length") from None
         limit = self.container.limits.max_body_bytes
         if length < 0:
+            self.close_connection = True
             raise ValidationError("Content-Length is negative", header="Content-Length")
         if length > limit:
+            # The body is refused on the declared length alone, so it is never read. The
+            # connection has to go with it -- the unread bytes are not a second request.
+            self.close_connection = True
             raise ResourceLimitExceeded(f"request body exceeds {limit} bytes", limit=limit,
                                         got=length)
         if length == 0:
