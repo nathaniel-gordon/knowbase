@@ -45,3 +45,14 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Demo / run output
+output/
+*.sqlite3
+
+# Local environment
+.env
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
