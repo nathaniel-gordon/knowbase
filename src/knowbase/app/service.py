@@ -1,8 +1,12 @@
 """The primary (driving) adapter: a stdlib JSON microservice over the use-cases.
 
-HTTP is deliberately a thin shell -- parse, delegate to a use-case, map the result to JSON. All
-knowledge-base behaviour lives inside the hexagon, which is why the same logic is reachable from
-the tests without a socket.
+HTTP is deliberately a thin shell -- parse, validate, delegate to a use-case, map the result to
+JSON. All knowledge-base behaviour lives inside the hexagon, which is why the same logic is
+reachable from the tests without a socket.
+
+Nothing is coerced in a handler any more: a request body becomes a typed object in
+``validation.py`` or it becomes a 400. Errors on the wire are ``{"error": {"code", "message",
+"details"}}`` with a stable code; the Python exception type is never part of the response.
 
 Endpoints
     GET  /health    bound adapters, corpus size, uptime
@@ -21,12 +25,41 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Mapping
 
-from ..domain.errors import KbError, UnknownStrategyError
+from ..domain.errors import (
+    AdapterUnavailable,
+    DocumentSourceUnavailable,
+    EmptyCorpusError,
+    IndexBuildFailed,
+    IndexNotBuiltError,
+    KbError,
+    PathNotAllowed,
+    ResourceLimitExceeded,
+    ValidationError,
+)
 from .composition import Container, build_container
 from .config import AppConfig
+from .validation import RequestValidator
 from .wire import answer_to_dict, comparison_to_dict, eval_to_dict, ingest_to_dict
 
-MAX_BODY_BYTES = 4 * 1024 * 1024
+#: Which HTTP status each domain error maps onto. Everything here is the client's fault
+#: except the two 5xx entries, which mean the service could not do its job.
+ERROR_STATUS: dict[type[KbError], HTTPStatus] = {
+    ValidationError: HTTPStatus.BAD_REQUEST,
+    IndexNotBuiltError: HTTPStatus.CONFLICT,
+    EmptyCorpusError: HTTPStatus.BAD_REQUEST,
+    IndexBuildFailed: HTTPStatus.BAD_REQUEST,
+    DocumentSourceUnavailable: HTTPStatus.BAD_REQUEST,
+    PathNotAllowed: HTTPStatus.FORBIDDEN,
+    ResourceLimitExceeded: HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+    AdapterUnavailable: HTTPStatus.SERVICE_UNAVAILABLE,
+}
+
+
+def status_for(error: KbError) -> HTTPStatus:
+    for kind in type(error).__mro__:
+        if kind in ERROR_STATUS:
+            return ERROR_STATUS[kind]
+    return HTTPStatus.BAD_REQUEST
 
 
 class KbHTTPServer(ThreadingHTTPServer):
@@ -36,9 +69,10 @@ class KbHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
     def __init__(self, address: tuple[str, int], container: Container) -> None:
-        super().__init__(address, KbRequestHandler)
         self.container = container
+        self.validator = RequestValidator(container.limits)
         self._lock = threading.Lock()
+        super().__init__(address, KbRequestHandler)
 
     @property
     def lock(self) -> threading.Lock:
@@ -47,7 +81,7 @@ class KbHTTPServer(ThreadingHTTPServer):
 
     @property
     def url(self) -> str:
-        host, port = self.server_address[:2]
+        host, port = self.server_address[0], self.server_address[1]
         return f"http://{host}:{port}"
 
 
@@ -60,11 +94,21 @@ class KbRequestHandler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------- plumbing
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        """Silence per-request logging; the demo prints its own transcript."""
+        """Silence the stdlib access line; structured logging replaces it."""
 
     @property
     def container(self) -> Container:
         return self.server.container  # type: ignore[attr-defined]
+
+    @property
+    def validator(self) -> RequestValidator:
+        return self.server.validator  # type: ignore[attr-defined]
+
+    def setup(self) -> None:
+        # Without a socket timeout a client that opens a connection and never finishes a
+        # request holds a worker thread forever -- the classic slowloris.
+        self.timeout = self.container.limits.request_timeout_s
+        super().setup()
 
     def _send(self, status: HTTPStatus | int, payload: Mapping[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -74,35 +118,61 @@ class KbRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_error(self, status: HTTPStatus | int, code: str, message: str,
+                    details: Mapping[str, Any] | None = None) -> None:
+        error: dict[str, Any] = {"code": code, "message": message}
+        if details:
+            error["details"] = dict(details)
+        self._send(status, {"error": error})
+
     def _read_json(self) -> dict[str, Any]:
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > MAX_BODY_BYTES:
-            raise ValueError(f"request body exceeds {MAX_BODY_BYTES} bytes")
-        if length <= 0:
+        """Read a JSON body, or raise ValidationError. Chunked bodies are refused outright.
+
+        The old handler trusted Content-Length and ignored Transfer-Encoding, so a chunked
+        POST was silently read as ``{}`` and processed as if the client had sent nothing.
+        """
+        if self.headers.get("Transfer-Encoding"):
+            raise ValidationError("chunked request bodies are not supported; send "
+                                  "Content-Length", header="Transfer-Encoding")
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
             return {}
         try:
-            return json.loads(self.rfile.read(length).decode("utf-8"))
+            length = int(raw_length)
+        except ValueError:
+            raise ValidationError("Content-Length is not an integer",
+                                  header="Content-Length") from None
+        limit = self.container.limits.max_body_bytes
+        if length < 0:
+            raise ValidationError("Content-Length is negative", header="Content-Length")
+        if length > limit:
+            raise ResourceLimitExceeded(f"request body exceeds {limit} bytes", limit=limit,
+                                        got=length)
+        if length == 0:
+            return {}
+        try:
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError(f"malformed JSON body: {exc}") from exc
+            raise ValidationError("body is not valid UTF-8 JSON", reason=str(exc)) from exc
+        if not isinstance(body, dict):
+            raise ValidationError("body must be a JSON object", got=type(body).__name__)
+        return body
 
     def _dispatch(self, routes: Mapping[str, Callable[[dict[str, Any]], Mapping[str, Any]]],
                   body: dict[str, Any] | None = None) -> None:
         path = self.path.split("?", 1)[0].rstrip("/") or "/"
         handler = routes.get(path)
         if handler is None:
-            self._send(HTTPStatus.NOT_FOUND,
-                       {"error": f"no such endpoint: {path}", "routes": sorted(routes)})
+            self._send_error(HTTPStatus.NOT_FOUND, "no_such_endpoint",
+                             f"no such endpoint: {path}", {"routes": sorted(routes)})
             return
         try:
             self._send(HTTPStatus.OK, handler(body if body is not None else {}))
-        except UnknownStrategyError as exc:
-            self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc), "kind": "unknown_adapter"})
-        except (ValueError, KbError) as exc:
-            self._send(HTTPStatus.BAD_REQUEST,
-                       {"error": str(exc), "kind": type(exc).__name__})
-        except Exception as exc:  # pragma: no cover - last-resort guard
-            self._send(HTTPStatus.INTERNAL_SERVER_ERROR,
-                       {"error": str(exc), "kind": type(exc).__name__})
+        except KbError as exc:
+            self._send_error(status_for(exc), exc.code, exc.message, exc.details)
+        except Exception:  # noqa: BLE001 - nothing internal is allowed onto the wire
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error",
+                             "the service failed to handle this request")
 
     # --------------------------------------------------------------- routes
 
@@ -112,8 +182,8 @@ class KbRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         try:
             body = self._read_json()
-        except ValueError as exc:
-            self._send(HTTPStatus.BAD_REQUEST, {"error": str(exc), "kind": "bad_request"})
+        except KbError as exc:
+            self._send_error(status_for(exc), exc.code, exc.message, exc.details)
             return
         self._dispatch({"/ingest": self._ingest, "/ask": self._ask, "/eval": self._eval,
                         "/compare": self._compare, "/config": self._config}, body)
@@ -122,12 +192,12 @@ class KbRequestHandler(BaseHTTPRequestHandler):
 
     def _health(self, _: dict[str, Any]) -> dict[str, Any]:
         c = self.container
+        stats = c.cache.stats()
         return {"status": "ok", "wiring": c.wiring(),
                 "indexed_passages": c.index.size(),
                 "corpus": ingest_to_dict(c.last_ingest) if c.last_ingest else None,
-                "cache": {"entries": c.cache.stats().entries,
-                          "hits": c.cache.stats().hits,
-                          "misses": c.cache.stats().misses},
+                "cache": {"entries": stats.entries, "hits": stats.hits,
+                          "misses": stats.misses},
                 "started_at": c.started_at}
 
     def _adapters(self, _: dict[str, Any]) -> dict[str, Any]:
@@ -141,35 +211,27 @@ class KbRequestHandler(BaseHTTPRequestHandler):
                 "bound": self.container.wiring()}
 
     def _ingest(self, body: dict[str, Any]) -> dict[str, Any]:
+        request = self.validator.ingest(body)
         with self.server.lock:  # type: ignore[attr-defined]
-            return ingest_to_dict(self.container.ingest(body))
+            return ingest_to_dict(self.container.ingest(request))
 
     def _ask(self, body: dict[str, Any]) -> dict[str, Any]:
-        question = body.get("question")
-        if not isinstance(question, str) or not question.strip():
-            raise ValueError("'question' must be a non-empty string")
-        k = body.get("k")
-        return answer_to_dict(self.container.ask(question, k=int(k) if k is not None else None))
+        request = self.validator.ask(body)
+        return answer_to_dict(self.container.ask(request.question, k=request.k))
 
     def _eval(self, body: dict[str, Any]) -> dict[str, Any]:
-        k = body.get("k")
-        return eval_to_dict(self.container.evaluate(suite=str(body.get("suite", "core")),
-                                                    k=int(k) if k is not None else None),
-                            with_rows=bool(body.get("rows", True)))
+        request = self.validator.evaluate(body)
+        return eval_to_dict(self.container.evaluate(request),
+                            rows=request.rows, page=request.page)
 
     def _compare(self, body: dict[str, Any]) -> dict[str, Any]:
-        names = body.get("indexes")
-        k = body.get("k")
-        return comparison_to_dict(self.container.compare(
-            names=list(names) if names else None,
-            suite=str(body.get("suite", "hard")),
-            k=int(k) if k is not None else None))
+        return comparison_to_dict(self.container.compare(self.validator.compare(body)))
 
     def _config(self, body: dict[str, Any]) -> dict[str, Any]:
+        request = self.validator.configure(body)
         with self.server.lock:  # type: ignore[attr-defined]
-            changes = self.container.rebind(index=body.get("index"),
-                                            generator=body.get("generator"),
-                                            cache=body.get("cache"))
+            changes = self.container.rebind(index=request.index, generator=request.generator,
+                                            cache=request.cache)
         return {"changed": changes, "wiring": self.container.wiring()}
 
 

@@ -8,12 +8,16 @@ import pytest
 from knowbase.app.client import AnswerView, ComparisonView, EvalView, IngestView, running_service
 from knowbase.app.composition import build_container, build_generator, build_source
 from knowbase.app.config import AppConfig
-from knowbase.domain.errors import UnknownStrategyError
+from knowbase.app.limits import DEFAULT_LIMITS
+from knowbase.app.paths import CorpusRoots
+from knowbase.app.validation import IngestRequest, RequestValidator
+from knowbase.domain.errors import UnknownStrategyError, ValidationError
 
 
 @pytest.fixture(scope="module")
-def client(demo_corpus_dir):
-    with running_service(AppConfig(clock="frozen", generator="extractive")) as live:
+def client(demo_corpus_dir, corpus_roots):
+    config = AppConfig(clock="frozen", generator="extractive", corpus_roots=corpus_roots)
+    with running_service(config) as live:
         live.ingest_path(str(demo_corpus_dir))
         yield live
 
@@ -84,18 +88,23 @@ def test_generator_falls_back_when_claude_is_unavailable(monkeypatch):
     assert "claude unavailable" in note
 
 
-def test_unknown_adapters_are_rejected_by_the_composition_root():
+def test_unknown_adapters_are_rejected_by_the_composition_root(tmp_path):
     with pytest.raises(UnknownStrategyError, match="index"):
         build_container(AppConfig(index="faiss"))
     with pytest.raises(UnknownStrategyError, match="generator"):
         build_generator("gpt")
     with pytest.raises(UnknownStrategyError, match="source"):
-        build_source({"source": "s3", "path": "x"})
+        build_source(IngestRequest(source="s3", path=str(tmp_path)),
+                     CorpusRoots([tmp_path]), DEFAULT_LIMITS)
 
 
 def test_memory_source_requires_documents():
-    with pytest.raises(ValueError, match="non-empty 'documents'"):
-        build_source({"source": "memory"})
+    """The validator refuses an empty inline corpus before any adapter is constructed."""
+    validator = RequestValidator(DEFAULT_LIMITS)
+    with pytest.raises(ValidationError, match="'documents' is required"):
+        validator.ingest({"source": "memory"})
+    with pytest.raises(ValidationError, match="must not be empty"):
+        validator.ingest({"source": "memory", "documents": {}})
 
 
 def test_container_closes_its_sqlite_cache(tmp_path):

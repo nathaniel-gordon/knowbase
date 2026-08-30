@@ -16,21 +16,23 @@ from knowbase.app.config import AppConfig
 
 
 @pytest.fixture(scope="module")
-def client(tmp_path_factory):
+def client(tmp_path_factory, corpus_roots):
     """A live service with the demo corpus ingested, shared by the read-only tests."""
     corpus = tmp_path_factory.mktemp("http_docs")
     from knowbase.app.corpus import write_demo_corpus
     write_demo_corpus(corpus)
-    config = AppConfig(clock="frozen", cache="memory", generator="extractive")
+    config = AppConfig(clock="frozen", cache="memory", generator="extractive",
+                       corpus_roots=corpus_roots)
     with running_service(config) as live:
         live.ingest_path(str(corpus))
         yield live
 
 
 @pytest.fixture
-def fresh_client():
+def fresh_client(corpus_roots):
     """An isolated service with nothing ingested (for error-path tests)."""
-    with running_service(AppConfig(clock="frozen", generator="extractive")) as live:
+    config = AppConfig(clock="frozen", generator="extractive", corpus_roots=corpus_roots)
+    with running_service(config) as live:
         yield live
 
 
@@ -183,14 +185,16 @@ def test_unknown_route_is_404(fresh_client):
     with pytest.raises(ServiceError) as excinfo:
         fresh_client._request("GET", "/nope")
     assert excinfo.value.status == 404
-    assert "routes" in excinfo.value.payload
+    assert excinfo.value.code == "no_such_endpoint"
+    assert "/health" in excinfo.value.details["routes"]
 
 
-def test_asking_before_ingest_is_a_client_error(fresh_client):
+def test_asking_before_ingest_is_a_conflict(fresh_client):
+    """No corpus is a state problem, not a malformed request -- 409, not 400."""
     with pytest.raises(ServiceError) as excinfo:
         fresh_client.ask("anything at all")
-    assert excinfo.value.status == 400
-    assert excinfo.value.payload["kind"] == "IndexNotBuiltError"
+    assert excinfo.value.status == 409
+    assert excinfo.value.code == "corpus_not_ingested"
 
 
 def test_blank_question_is_rejected(fresh_client, demo_corpus_dir):
@@ -198,6 +202,8 @@ def test_blank_question_is_rejected(fresh_client, demo_corpus_dir):
     with pytest.raises(ServiceError) as excinfo:
         fresh_client.ask("   ")
     assert excinfo.value.status == 400
+    assert excinfo.value.code == "invalid_request"
+    assert excinfo.value.details["field"] == "question"
 
 
 def test_unknown_adapter_is_rejected_with_the_available_list(fresh_client, demo_corpus_dir):
@@ -205,8 +211,8 @@ def test_unknown_adapter_is_rejected_with_the_available_list(fresh_client, demo_
     with pytest.raises(ServiceError) as excinfo:
         fresh_client.configure(index="faiss")
     assert excinfo.value.status == 400
-    assert excinfo.value.payload["kind"] == "unknown_adapter"
-    assert "hybrid_rrf" in excinfo.value.payload["error"]
+    assert excinfo.value.code == "unknown_adapter"
+    assert "hybrid_rrf" in excinfo.value.details["available"]
 
 
 def test_unknown_suite_is_rejected(fresh_client, demo_corpus_dir):
@@ -214,13 +220,14 @@ def test_unknown_suite_is_rejected(fresh_client, demo_corpus_dir):
     with pytest.raises(ServiceError) as excinfo:
         fresh_client.evaluate(suite="does-not-exist")
     assert excinfo.value.status == 400
+    assert excinfo.value.code == "unknown_adapter"
 
 
-def test_missing_source_path_is_rejected(fresh_client):
+def test_missing_source_path_inside_a_root_is_rejected(fresh_client, tmp_path):
     with pytest.raises(ServiceError) as excinfo:
-        fresh_client.ingest_path("/no/such/folder/anywhere")
+        fresh_client.ingest_path(str(tmp_path / "no-such-folder"))
     assert excinfo.value.status == 400
-    assert excinfo.value.payload["kind"] == "DocumentSourceUnavailable"
+    assert excinfo.value.code == "source_unavailable"
 
 
 def test_malformed_json_body_is_rejected(fresh_client):
@@ -230,4 +237,4 @@ def test_malformed_json_body_is_rejected(fresh_client):
     with pytest.raises(urllib.error.HTTPError) as excinfo:
         urllib.request.urlopen(request, timeout=10)
     assert excinfo.value.code == 400
-    assert json.loads(excinfo.value.read())["kind"] == "bad_request"
+    assert json.loads(excinfo.value.read())["error"]["code"] == "invalid_request"

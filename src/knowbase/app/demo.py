@@ -32,9 +32,8 @@ def run_demo(output_dir: Path, deterministic: bool = True) -> int:
 
     config = AppConfig(clock="frozen" if deterministic else "system",
                        cache="sqlite",
-                       sqlite_path=str(output_dir / "answers.sqlite3"),
-                       source="filesystem",
-                       source_path=str(docs_dir))
+                       sqlite_path=str(output_dir / "knowbase.sqlite3"),
+                       corpus_roots=(str(output_dir),))
 
     with running_service(config) as client:
         _rule("1. Service up -- composition root wiring")

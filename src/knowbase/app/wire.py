@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..domain.model import Answer, ComparisonReport, EvalReport, IngestReport
+from .validation import Page
 
 
 def ingest_to_dict(report: IngestReport) -> dict[str, Any]:
@@ -33,18 +34,28 @@ def answer_to_dict(answer: Answer) -> dict[str, Any]:
     }
 
 
-def eval_to_dict(report: EvalReport, with_rows: bool = True) -> dict[str, Any]:
+def eval_to_dict(report: EvalReport, rows: bool = True,
+                 page: Page | None = None) -> dict[str, Any]:
+    """Serialise an evaluation report, paginating the per-question rows.
+
+    Rows grow with the suite (a caller may post up to ``Limits.max_eval_cases`` of them), so
+    the row list is a page rather than the whole thing, and the envelope says how many there
+    were in total.
+    """
     payload: dict[str, Any] = {
         "index": report.index, "suite": report.suite, "k": report.k, "n": report.n,
         "hit@1": report.hit_at_1, f"hit@{report.k}": report.hit_at_k, "mrr": report.mrr,
     }
-    if with_rows:
+    if rows:
+        page = page or Page(limit=len(report.rows) or 1, offset=0)
+        window, envelope = page.apply(report.rows)
         payload["rows"] = [{"question": r.question, "expected_doc_id": r.expected_doc_id,
-                            "rank": r.rank, "top_doc_id": r.top_doc_id} for r in report.rows]
+                            "rank": r.rank, "top_doc_id": r.top_doc_id} for r in window]
+        payload["page"] = envelope
     return payload
 
 
 def comparison_to_dict(report: ComparisonReport) -> dict[str, Any]:
     return {"suite": report.suite, "k": report.k, "winner": report.winner,
             "margin": report.margin,
-            "reports": [eval_to_dict(r, with_rows=False) for r in report.reports]}
+            "reports": [eval_to_dict(r, rows=False) for r in report.reports]}

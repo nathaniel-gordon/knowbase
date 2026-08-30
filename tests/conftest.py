@@ -64,6 +64,17 @@ def fixture_zip(tmp_path_factory, fixture_dir) -> Path:
 
 
 @pytest.fixture(scope="session")
+def corpus_roots(tmp_path_factory) -> tuple[str, ...]:
+    """Allow-list for ``/ingest`` in tests.
+
+    Everything pytest writes lives under one base temp directory, so allow-listing that
+    directory lets the HTTP tests ingest their fixtures while every path outside it is still
+    refused -- which is the behaviour ``tests/test_security.py`` then pins.
+    """
+    return (str(tmp_path_factory.getbasetemp()),)
+
+
+@pytest.fixture(scope="session")
 def demo_corpus_dir(tmp_path_factory) -> Path:
     """The full bundled 14-document knowledge base -- used for the preserved-quality tests."""
     folder = tmp_path_factory.mktemp("demo_docs")

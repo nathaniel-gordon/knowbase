@@ -22,11 +22,20 @@ from .service import create_server
 
 
 class ServiceError(RuntimeError):
-    """The service answered with a non-2xx status; carries the parsed error payload."""
+    """The service answered with a non-2xx status.
+
+    ``code`` is the stable machine-readable identifier from the error taxonomy; switch on it
+    rather than on the message, which is prose and may be reworded.
+    """
 
     def __init__(self, status: int, payload: Mapping[str, Any]) -> None:
-        super().__init__(f"HTTP {status}: {payload.get('error', payload)}")
+        error = payload.get("error")
+        error = error if isinstance(error, Mapping) else {"code": "unknown", "message": str(error)}
+        super().__init__(f"HTTP {status} [{error.get('code')}]: {error.get('message')}")
         self.status = status
+        self.code = str(error.get("code", "unknown"))
+        self.message = str(error.get("message", ""))
+        self.details = dict(error.get("details") or {})
         self.payload = dict(payload)
 
 
@@ -84,6 +93,7 @@ class EvalView:
     hit_at_k: float
     mrr: float
     rows: tuple[Mapping[str, Any], ...] = field(default_factory=tuple)
+    page: Mapping[str, int] = field(default_factory=dict)
 
     def summary(self) -> str:
         return (f"{self.index:<11} suite={self.suite:<5} n={self.n:<3} "
@@ -111,7 +121,8 @@ def _eval_view(payload: Mapping[str, Any]) -> EvalView:
     return EvalView(index=payload["index"], suite=payload["suite"], k=k, n=int(payload["n"]),
                     hit_at_1=float(payload["hit@1"]), hit_at_k=float(payload[f"hit@{k}"]),
                     mrr=float(payload["mrr"]),
-                    rows=tuple(payload.get("rows", ())))
+                    rows=tuple(payload.get("rows", ())),
+                    page=dict(payload.get("page", {})))
 
 
 class KbClient:
@@ -136,7 +147,7 @@ class KbClient:
             try:
                 body = json.loads(raw)
             except json.JSONDecodeError:
-                body = {"error": raw}
+                body = {"error": {"code": "unparseable_response", "message": raw[:500]}}
             raise ServiceError(exc.code, body) from None
 
     # ------------------------------------------------------------- endpoints
@@ -171,19 +182,31 @@ class KbClient:
             citations=tuple(CitationView(**c) for c in payload["citations"]),
             retrieved=tuple(HitView(**h) for h in payload["retrieved"]))
 
-    def evaluate(self, suite: str = "core", k: int | None = None, rows: bool = True) -> EvalView:
+    def evaluate(self, suite: str = "core", k: int | None = None, rows: bool = True,
+                 cases: Sequence[Mapping[str, str]] | None = None,
+                 limit: int | None = None, offset: int | None = None) -> EvalView:
+        """Evaluate the active index. Pass ``cases`` to score your own labelled questions."""
         body: dict[str, Any] = {"suite": suite, "rows": rows}
         if k is not None:
             body["k"] = k
+        if cases is not None:
+            body["cases"] = [dict(c) for c in cases]
+        if limit is not None:
+            body["limit"] = limit
+        if offset is not None:
+            body["offset"] = offset
         return _eval_view(self._request("POST", "/eval", body))
 
     def compare(self, indexes: Sequence[str] | None = None, suite: str = "hard",
-                k: int | None = None) -> ComparisonView:
+                k: int | None = None,
+                cases: Sequence[Mapping[str, str]] | None = None) -> ComparisonView:
         body: dict[str, Any] = {"suite": suite}
         if indexes:
             body["indexes"] = list(indexes)
         if k is not None:
             body["k"] = k
+        if cases is not None:
+            body["cases"] = [dict(c) for c in cases]
         payload = self._request("POST", "/compare", body)
         return ComparisonView(suite=payload["suite"], k=int(payload["k"]),
                               winner=payload["winner"], margin=float(payload["margin"]),

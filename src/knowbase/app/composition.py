@@ -23,12 +23,17 @@ from ..adapters import (
     ZipDocumentSource,
     anthropic_completion,
 )
+from ..adapters.source.filesystem import DEFAULT_EXTS as FS_DEFAULT_EXTS
+from ..adapters.source.zip_archive import DEFAULT_EXTS as ZIP_DEFAULT_EXTS
 from ..domain.errors import AdapterUnavailable, IndexNotBuiltError, UnknownStrategyError
 from ..domain.model import Answer, ComparisonReport, EvalCase, EvalReport, IngestReport
 from ..domain.usecases import AskQuestion, CompareStrategies, EvaluateRetrieval, IngestCorpus
 from ..ports import CachePort, ClockPort, DocumentSourcePort, GeneratorPort, IndexPort
 from .config import AppConfig
 from .corpus import SUITES
+from .limits import Limits
+from .paths import CorpusRoots
+from .validation import CompareRequest, EvalRequest, IngestRequest
 
 
 def build_clock(name: str) -> ClockPort:
@@ -36,13 +41,15 @@ def build_clock(name: str) -> ClockPort:
         return CLOCK_ADAPTERS[name]()
     except KeyError:
         raise UnknownStrategyError(
-            f"unknown clock adapter {name!r}; available: {sorted(CLOCK_ADAPTERS)}") from None
+            f"unknown clock adapter {name!r}; available: {sorted(CLOCK_ADAPTERS)}",
+            requested=name, available=sorted(CLOCK_ADAPTERS)) from None
 
 
 def build_cache(name: str, clock: ClockPort, sqlite_path: str = ":memory:") -> CachePort:
     if name not in CACHE_ADAPTERS:
         raise UnknownStrategyError(
-            f"unknown cache adapter {name!r}; available: {sorted(CACHE_ADAPTERS)}")
+            f"unknown cache adapter {name!r}; available: {sorted(CACHE_ADAPTERS)}",
+            requested=name, available=sorted(CACHE_ADAPTERS))
     cls = CACHE_ADAPTERS[name]
     return cls(clock, sqlite_path) if cls is SqliteCache else cls(clock)
 
@@ -52,7 +59,8 @@ def build_index(name: str) -> IndexPort:
         return INDEX_ADAPTERS[name]()  # type: ignore[return-value]
     except KeyError:
         raise UnknownStrategyError(
-            f"unknown index adapter {name!r}; available: {sorted(INDEX_ADAPTERS)}") from None
+            f"unknown index adapter {name!r}; available: {sorted(INDEX_ADAPTERS)}",
+            requested=name, available=sorted(INDEX_ADAPTERS)) from None
 
 
 def build_generator(name: str) -> tuple[GeneratorPort, str]:
@@ -70,33 +78,38 @@ def build_generator(name: str) -> tuple[GeneratorPort, str]:
             return ExtractiveGenerator(), f"extractive (claude unavailable: {exc})"
         return generator, f"claude ({generator.model})"
     raise UnknownStrategyError(
-        f"unknown generator adapter {name!r}; available: {sorted(GENERATOR_ADAPTERS)}")
+        f"unknown generator adapter {name!r}; available: {sorted(GENERATOR_ADAPTERS)}",
+            requested=name, available=sorted(GENERATOR_ADAPTERS))
 
 
-def build_source(spec: Mapping[str, Any]) -> DocumentSourcePort:
-    """Build a document source from ``{"source": name, ...}``.
+def build_source(request: IngestRequest, roots: CorpusRoots, limits: Limits) -> DocumentSourcePort:
+    """Build a document source from an already-validated ingest request.
 
     Accepting the source per request (rather than once at start-up) is what lets a single
-    running service ingest a folder, then a zip export, then inline documents.
+    running service ingest a folder, then a zip export, then inline documents. It is also the
+    reason ``roots`` exists: the path comes from the caller, so it is resolved and required to
+    sit inside the allow-list before any adapter is handed it.
     """
-    name = str(spec.get("source", "filesystem"))
-    if name not in SOURCE_ADAPTERS:
+    if request.source not in SOURCE_ADAPTERS:
         raise UnknownStrategyError(
-            f"unknown source adapter {name!r}; available: {sorted(SOURCE_ADAPTERS)}")
-    if name == InMemoryDocumentSource.name:
-        documents = spec.get("documents")
-        if not isinstance(documents, Mapping) or not documents:
-            raise ValueError("memory source requires a non-empty 'documents' object")
-        return InMemoryDocumentSource({str(k): str(v) for k, v in documents.items()},
-                                      label=str(spec.get("label", "inline")))
-    path = spec.get("path")
-    if not path:
-        raise ValueError(f"{name} source requires a 'path'")
-    exts = spec.get("exts")
-    if name == ZipDocumentSource.name:
-        return ZipDocumentSource(Path(path), exts) if exts else ZipDocumentSource(Path(path))
-    return (FilesystemDocumentSource(Path(path), exts) if exts
-            else FilesystemDocumentSource(Path(path)))
+            f"unknown source adapter {request.source!r}; available: {sorted(SOURCE_ADAPTERS)}",
+            requested=request.source, available=sorted(SOURCE_ADAPTERS))
+
+    if request.source == InMemoryDocumentSource.name:
+        documents = dict(request.documents or ())
+        return InMemoryDocumentSource(documents, label=request.label)
+
+    path = roots.resolve(request.path or "")
+    exts = request.exts
+    if request.source == ZipDocumentSource.name:
+        return ZipDocumentSource(path, exts or ZIP_DEFAULT_EXTS,
+                                 max_members=limits.max_zip_members,
+                                 max_member_bytes=limits.max_zip_member_bytes,
+                                 max_total_bytes=limits.max_zip_total_bytes)
+    return FilesystemDocumentSource(path, exts or FS_DEFAULT_EXTS,
+                                    max_files=limits.max_files,
+                                    max_file_bytes=limits.max_file_bytes,
+                                    max_scanned_entries=limits.max_scanned_entries)
 
 
 class Container:
@@ -108,12 +121,15 @@ class Container:
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
+        self.limits = config.limits
+        self.roots = CorpusRoots(config.corpus_roots)
         self.clock = build_clock(config.clock)
         self.cache = build_cache(config.cache, self.clock, config.sqlite_path)
         self.generator, self.generator_note = build_generator(config.generator)
         self.indexes: dict[str, IndexPort] = {n: build_index(n) for n in config.index_names()}
         self.source: DocumentSourcePort | None = None
         self.last_ingest: IngestReport | None = None
+        self.passages: list[Any] = []
         self.started_at = self.clock.timestamp()
 
     # ---------------------------------------------------------------- wiring
@@ -132,6 +148,7 @@ class Container:
             "cache": self.cache.name,
             "clock": self.clock.name,
             "source": self.source.describe() if self.source else None,
+            "corpus_roots": len(self.roots.roots),
         }
 
     def rebind(self, index: str | None = None, generator: str | None = None,
@@ -141,11 +158,12 @@ class Container:
         if index is not None and index != self.config.index:
             if index not in INDEX_ADAPTERS:
                 raise UnknownStrategyError(
-                    f"unknown index adapter {index!r}; available: {sorted(INDEX_ADAPTERS)}")
+                    f"unknown index adapter {index!r}; available: {sorted(INDEX_ADAPTERS)}",
+                    requested=index, available=sorted(INDEX_ADAPTERS))
             if index not in self.indexes:
                 fresh = build_index(index)
-                if self.last_ingest is not None and self._passages:
-                    fresh.build(self._passages)
+                if self.last_ingest is not None and self.passages:
+                    fresh.build(self.passages)
                 self.indexes[index] = fresh
             changes["index"] = {"from": self.config.index, "to": index}
             self.config = self.config.with_(index=index)
@@ -162,10 +180,8 @@ class Container:
 
     # ------------------------------------------------------------- use-cases
 
-    _passages: Sequence[Any] = ()
-
-    def ingest(self, spec: Mapping[str, Any]) -> IngestReport:
-        source = build_source(spec)
+    def ingest(self, request: IngestRequest) -> IngestReport:
+        source = build_source(request, self.roots, self.limits)
         use_case = IngestCorpus(source=source,
                                 indexes=[self.indexes[n] for n in sorted(self.indexes)],
                                 clock=self.clock,
@@ -173,7 +189,7 @@ class Container:
                                 overlap=self.config.overlap)
         report = use_case.execute()
         self.source = source
-        self._passages = use_case.passages
+        self.passages = list(use_case.passages)
         self.last_ingest = report
         self.cache.clear()  # answers cached against a previous corpus are no longer grounded
         return report
@@ -184,18 +200,19 @@ class Container:
                            clock=self.clock, default_k=self.config.top_k,
                            ttl_s=self.config.cache_ttl_s).execute(question, k=k)
 
-    def evaluate(self, suite: str = "core", k: int | None = None,
-                 cases: Sequence[EvalCase] | None = None) -> EvalReport:
+    def evaluate(self, request: EvalRequest) -> EvalReport:
         self._require_index()
-        cases = self._suite(suite) if cases is None else cases
+        cases = request.cases if request.cases is not None else self._suite(request.suite)
+        suite = request.suite if request.cases is None else "custom"
         return EvaluateRetrieval(self.index, default_k=self.config.eval_k).execute(
-            cases, k=k, suite=suite)
+            cases, k=request.k, suite=suite)
 
-    def compare(self, names: Sequence[str] | None = None, suite: str = "hard",
-                k: int | None = None) -> ComparisonReport:
+    def compare(self, request: CompareRequest) -> ComparisonReport:
         self._require_index()
+        cases = request.cases if request.cases is not None else self._suite(request.suite)
+        suite = request.suite if request.cases is None else "custom"
         return CompareStrategies(self.indexes).execute(
-            self._suite(suite), names=names, k=k or self.config.eval_k, suite=suite)
+            cases, names=request.indexes, k=request.k or self.config.eval_k, suite=suite)
 
     # --------------------------------------------------------------- helpers
 
@@ -205,7 +222,8 @@ class Container:
             return SUITES[suite]
         except KeyError:
             raise UnknownStrategyError(
-                f"unknown eval suite {suite!r}; available: {sorted(SUITES)}") from None
+                f"unknown eval suite {suite!r}; available: {sorted(SUITES)}",
+                requested=suite, available=sorted(SUITES)) from None
 
     def _require_index(self) -> None:
         if self.index.size() == 0:

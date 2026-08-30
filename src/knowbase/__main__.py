@@ -25,10 +25,20 @@ def _serve(argv: Sequence[str]) -> int:
     parser.add_argument("--generator", default="claude",
                         help="GeneratorPort adapter to bind ('claude' degrades to 'extractive')")
     parser.add_argument("--cache", default="memory", help="CachePort adapter to bind")
+    parser.add_argument("--cache-ttl", type=float, default=None,
+                        help="seconds a cached answer stays servable (default: no expiry)")
+    parser.add_argument("--corpus-root", action="append", default=[], metavar="DIR",
+                        help="directory /ingest may read from; repeatable "
+                             "(default: the working directory)")
+    parser.add_argument("--sqlite-path", default=":memory:",
+                        help="service database for the answer cache and the corpus store")
     parser.add_argument("--config", help="path to a JSON AppConfig file (overrides the flags)")
     args = parser.parse_args(list(argv))
     config = (AppConfig.from_json_file(args.config) if args.config
-              else AppConfig(index=args.index, generator=args.generator, cache=args.cache))
+              else AppConfig(index=args.index, generator=args.generator, cache=args.cache,
+                             cache_ttl_s=args.cache_ttl,
+                             sqlite_path=args.sqlite_path,
+                             corpus_roots=tuple(args.corpus_root)))
     serve_forever(config, host=args.host, port=args.port)
     return 0
 
