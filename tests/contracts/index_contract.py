@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from knowbase.domain.errors import EmptyCorpusError, IndexNotBuiltError
+from knowbase.domain.errors import EmptyCorpusError, IndexBuildFailed, IndexNotBuiltError
+from knowbase.domain.model import Passage
 from knowbase.ports import IndexPort
 
 from .corpus_fixture import FIXTURE_PROBES
@@ -42,6 +43,13 @@ class IndexContract:
     def test_building_an_empty_corpus_is_refused(self, make_index):
         with pytest.raises(EmptyCorpusError):
             make_index().build([])
+
+    def test_building_a_corpus_of_pure_stopwords_raises_a_domain_error(self, make_index):
+        """No driver exception may escape: sklearn's "empty vocabulary" is not an API error."""
+        stopwords_only = [Passage(doc_id="noise", ordinal=0, title="Noise",
+                                  text="the and or but if then it is at of to")]
+        with pytest.raises(IndexBuildFailed):
+            make_index().build(stopwords_only)
 
     def test_size_reflects_the_corpus(self, make_index, index, fixture_passages):
         assert make_index().size() == 0

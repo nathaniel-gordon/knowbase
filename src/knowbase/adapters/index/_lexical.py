@@ -16,6 +16,7 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from ...domain.errors import IndexBuildFailed
 from ...domain.text import tokenize
 
 
@@ -29,6 +30,13 @@ class BM25:
     def __init__(self, corpus_tokens: Sequence[Sequence[str]], k1: float = 1.5, b: float = 0.75):
         self.k1, self.b = k1, b
         self.doc_tokens = [list(d) for d in corpus_tokens]
+        if not any(self.doc_tokens):
+            # Matches what the TF-IDF half does on the same input, so every index adapter
+            # rejects a degenerate corpus with the same domain error rather than one of them
+            # silently building an index that can never return a hit.
+            raise IndexBuildFailed(
+                "the documents carry no indexable terms once stopwords are removed",
+                reason="empty_vocabulary")
         self.doc_len = np.array([len(d) for d in self.doc_tokens], dtype=float)
         self.avgdl = float(self.doc_len.mean()) if self.doc_tokens else 0.0
         self.doc_freqs = [Counter(d) for d in self.doc_tokens]
@@ -51,12 +59,22 @@ class BM25:
 
 
 class TfidfCosine:
-    """TF-IDF over 1-2 grams with sublinear term frequency, scored by cosine similarity."""
+    """TF-IDF over 1-2 grams with sublinear term frequency, scored by cosine similarity.
+
+    Fitting is where scikit-learn raises on degenerate input (a corpus of pure stopwords gives
+    "empty vocabulary"). That is translated here so the driver's wording never reaches a
+    client: the boundary rule in ``domain.errors`` applies to this adapter like any other.
+    """
 
     def __init__(self, texts: Sequence[str]):
         self.vectorizer = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True,
                                           tokenizer=tokenize, token_pattern=None)
-        self.matrix = self.vectorizer.fit_transform(list(texts))
+        try:
+            self.matrix = self.vectorizer.fit_transform(list(texts))
+        except ValueError as exc:
+            raise IndexBuildFailed(
+                "the documents carry no indexable terms once stopwords are removed",
+                reason="empty_vocabulary") from exc
 
     def scores(self, query: str) -> np.ndarray:
         return cosine_similarity(self.vectorizer.transform([query]), self.matrix).ravel()
