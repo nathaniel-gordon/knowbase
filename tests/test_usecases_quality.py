@@ -1,8 +1,8 @@
 """Quality regression tests for the domain use-cases over the real bundled knowledge base.
 
-These are the numbers the refactor had to preserve. The pre-refactor engine scored
-hit@1 = 1.000, hit@5 = 1.000, MRR = 1.000 on the 12-question core suite; anything less here is
-a regression, not a rounding difference.
+The floors below are regression floors, not a comparison against some earlier system: they
+pin what this code measures today so a change that quietly degrades retrieval fails the build.
+Every figure was produced by running this suite.
 """
 from __future__ import annotations
 
@@ -19,8 +19,9 @@ from knowbase.app.corpus import CORE_SUITE, HARD_SUITE
 from knowbase.domain.errors import IndexNotBuiltError, UnknownStrategyError
 from knowbase.domain.usecases import AskQuestion, CompareStrategies, EvaluateRetrieval, IngestCorpus
 
-#: Pre-refactor baseline, reproduced by the demo on every run.
-BASELINE_CORE = {"hit@1": 1.0, "hit@5": 1.0, "mrr": 1.0}
+#: Regression floor for the core suite: every index adapter saturates it today and must
+#: keep doing so. Measured by this module.
+CORE_FLOOR = {"hit@1": 1.0, "hit@5": 1.0, "mrr": 1.0}
 
 
 @pytest.fixture(scope="module")
@@ -59,13 +60,13 @@ def test_passage_ids_are_stable_and_unique(wired):
 # -------------------------------------------------------------------- retrieval
 
 @pytest.mark.parametrize("index_name", ["hybrid_rrf", "bm25", "tfidf"])
-def test_core_suite_quality_is_preserved(wired, index_name):
+def test_core_suite_stays_saturated(wired, index_name):
     report = EvaluateRetrieval(wired["indexes"][index_name]).execute(CORE_SUITE, k=5,
                                                                      suite="core")
     assert report.n == 12
-    assert report.hit_at_1 >= BASELINE_CORE["hit@1"], report.summary()
-    assert report.hit_at_k >= BASELINE_CORE["hit@5"], report.summary()
-    assert report.mrr >= BASELINE_CORE["mrr"], report.summary()
+    assert report.hit_at_1 >= CORE_FLOOR["hit@1"], report.summary()
+    assert report.hit_at_k >= CORE_FLOOR["hit@5"], report.summary()
+    assert report.mrr >= CORE_FLOOR["mrr"], report.summary()
     assert all(row.rank == 1 for row in report.rows)
 
 

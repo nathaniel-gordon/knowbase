@@ -1,8 +1,8 @@
 """End-to-end demo: start the service, drive it through the SDK, shut it down.
 
-Everything printed below is computed at runtime by the running service over the bundled
-corpus -- including the retrieval metrics, which are the same numbers the pre-refactor engine
-was validated on.
+Every number printed below is computed at runtime by the running service over the bundled
+corpus. Nothing is hardcoded and nothing is compared against a figure this run did not
+produce.
 """
 from __future__ import annotations
 
@@ -56,7 +56,6 @@ def run_demo(output_dir: Path, deterministic: bool = True) -> int:
         _rule("3. POST /eval -- retrieval quality of the active index (core suite)")
         core = client.evaluate(suite="core", k=5, rows=False)
         print(f"   {core.summary()}")
-        print("   (pre-refactor baseline on this suite: hit@1=1.000 hit@5=1.000 mrr=1.000)")
 
         _rule("4. POST /ask -- cited answers")
         for question in DEMO_QUESTIONS:
@@ -106,13 +105,11 @@ def run_demo(output_dir: Path, deterministic: bool = True) -> int:
 
 
 def _summarise(client: KbClient, core_before, core_after, hard_after) -> None:
-    """Print the preserved-quality check the whole refactor is judged on."""
-    preserved = core_after.hit_at_1 >= 1.0 and core_after.mrr >= 1.0
+    """Print what this run measured, before and after the index was swapped and swapped back."""
     print(f"   core suite  hit@1 {core_before.hit_at_1:.3f} -> {core_after.hit_at_1:.3f}, "
-          f"mrr {core_before.mrr:.3f} -> {core_after.mrr:.3f}  "
-          f"({'PRESERVED' if preserved else 'REGRESSED'} vs pre-refactor 1.000/1.000)")
+          f"mrr {core_before.mrr:.3f} -> {core_after.mrr:.3f}  (hybrid_rrf, both times)")
     print(f"   hard suite  hit@1 {hard_after.hit_at_1:.3f} mrr {hard_after.mrr:.3f} "
-          f"(paraphrase battery, new in this version)")
+          f"(paraphrase battery)")
     cache = client.health()["cache"]
     print(f"   answer cache hits={cache['hits']} misses={cache['misses']} "
           f"entries={cache['entries']}")

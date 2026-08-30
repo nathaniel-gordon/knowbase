@@ -2,8 +2,7 @@
 
 These live in the core rather than in an adapter because they define what a *passage* is,
 and every index adapter must agree on that definition for retrieval scores to be comparable
-in an A/B run. The implementation is byte-for-byte the tokeniser/chunker that produced the
-validated hit@1 = 1.0 / MRR = 1.0 numbers of the pre-refactor engine.
+in an A/B run.
 
 Nothing here touches IO, the clock, or randomness, so the whole module is referentially
 transparent and testable without any fixture.
@@ -32,8 +31,8 @@ STOPWORDS = frozenset(
 def stem(token: str) -> str:
     """Light suffix stripping so 'passwords' matches 'password' and 'policies' matches 'policy'.
 
-    A full Porter stemmer over-stems policy jargon ("retention" -> "retent"), which hurt
-    precision on this corpus; this conservative rule set was the version that scored 1.0.
+    A full Porter stemmer over-stems policy jargon ("retention" -> "retent"), which hurts
+    precision on this corpus, so the rule set stays deliberately conservative.
     """
     if len(token) > 4 and token.endswith("ies"):
         return token[:-3] + "y"
@@ -63,7 +62,7 @@ def chunk_document(document: Document,
     """Split a document into overlapping word windows that respect paragraph breaks.
 
     Overlap matters: a policy sentence that straddles a window boundary would otherwise be
-    unretrievable. ``target_words``/``overlap`` default to the validated 120/25 setting.
+    unretrievable. ``target_words``/``overlap`` default to 120/25.
     """
     if target_words <= 0:
         raise ValueError("target_words must be positive")

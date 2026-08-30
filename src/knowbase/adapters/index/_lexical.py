@@ -3,8 +3,8 @@
 Deliberately *not* in the domain: it depends on numpy and scikit-learn, and the whole point of
 the IndexPort seam is that those libraries stay on the outside of the hexagon.
 
-The BM25 implementation and the TF-IDF configuration are carried over unchanged from the
-pre-refactor engine that measured hit@1 = 1.0 / MRR = 1.0 on the bundled suite.
+BM25 and the TF-IDF configuration are both here because the hybrid adapter fuses them and
+the two single-strategy adapters expose each half on its own for the A/B endpoint.
 """
 from __future__ import annotations
 
@@ -66,8 +66,7 @@ def reciprocal_rank_fusion(score_lists: Sequence[np.ndarray], rrf_k: int = 60) -
     """Fuse several score vectors by rank rather than by magnitude.
 
     RRF is used because BM25 scores and cosine similarities live on incomparable scales; fusing
-    on rank sidesteps the normalisation problem entirely and is what lifted the bundled suite
-    to a perfect MRR.
+    on rank sidesteps the normalisation problem entirely.
     """
     fused: dict[int, float] = {}
     for scores in score_lists:

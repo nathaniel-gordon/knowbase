@@ -7,8 +7,9 @@ use-cases run unchanged.
 Two suites are provided:
 
 ``core``
-    The 12 questions the pre-refactor engine was validated on (hit@1 = 1.0, MRR = 1.0). They
-    share vocabulary with the source documents, which is the realistic case for a KB search box.
+    12 questions that share vocabulary with the source documents, which is the realistic case
+    for a KB search box. Every index adapter saturates this suite; run ``python run.py demo``
+    to see the current numbers.
 ``hard``
     12 paraphrase questions written to avoid the documents' own wording ("thumb drive" for
     "removable USB storage"). Lexical retrieval is genuinely stressed here, which is what makes

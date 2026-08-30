@@ -122,7 +122,7 @@ def test_second_identical_ask_is_cached(client):
 
 # ----------------------------------------------------------------- eval / A/B
 
-def test_eval_preserves_the_pre_refactor_quality(client):
+def test_eval_reports_a_saturated_core_suite(client):
     report = client.evaluate(suite="core", k=5, rows=False)
     assert (report.index, report.n) == ("hybrid_rrf", 12)
     assert report.hit_at_1 == 1.0 and report.hit_at_k == 1.0 and report.mrr == 1.0

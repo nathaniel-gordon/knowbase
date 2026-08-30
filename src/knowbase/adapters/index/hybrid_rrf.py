@@ -1,7 +1,8 @@
 """The production retrieval adapter: BM25 + TF-IDF cosine fused by reciprocal rank.
 
-This is the strategy that scored hit@1 = 1.0, hit@5 = 1.0, MRR = 1.0 on the bundled suite
-before the refactor; the scoring path is preserved verbatim so the numbers are preserved too.
+Fusing on rank rather than on score sidesteps the fact that BM25 scores and cosine
+similarities live on incomparable scales. ``python run.py demo`` prints what it currently
+scores on the two bundled suites.
 """
 from __future__ import annotations
 

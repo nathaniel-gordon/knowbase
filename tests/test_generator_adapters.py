@@ -56,7 +56,7 @@ class TestExtractiveGenerator(GeneratorContract):
         return ExtractiveGenerator()
 
     def test_cites_only_passages_that_contributed_sentences(self):
-        """The pre-refactor engine cited every retrieved passage; this one cites what it used."""
+        """Only the passages that actually contributed a sentence may be cited."""
         generator = ExtractiveGenerator()
         result = generator.generate("How many vacation days do employees receive each year?",
                                     [LEAVE_PASSAGE, DISTRACTOR_PASSAGE])

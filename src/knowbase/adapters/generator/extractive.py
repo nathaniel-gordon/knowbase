@@ -4,9 +4,8 @@ It ranks sentences drawn from the retrieved passages by query-token overlap and 
 best few back together in retrieval order. No model, no network, no randomness: given the same
 passages it always produces the same prose, which is what makes the HTTP eval reproducible.
 
-Carried over from the pre-refactor engine, with one deliberate improvement the port contract
-made necessary: it now reports *which* passages its sentences came from, so the use-case can
-cite only those instead of blanket-citing everything retrieved.
+It reports *which* passages its sentences came from, so the use-case can cite only those
+instead of blanket-citing everything retrieved.
 """
 from __future__ import annotations
 

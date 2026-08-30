@@ -82,9 +82,8 @@ class AskQuestion:
     """Retrieve passages, generate a grounded answer, and attach only earned citations.
 
     A citation is emitted **only** for a passage the generator declared it used. Reporting the
-    whole retrieved set as "sources" -- what the pre-refactor engine did -- overstates grounding;
-    the port contract makes the honest version cheap because every generator must return the
-    markers it relied on.
+    whole retrieved set as "sources" would overstate grounding; the port contract makes the
+    honest version cheap because every generator must return the markers it relied on.
     """
 
     def __init__(self,
