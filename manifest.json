@@ -1,16 +1,18 @@
 {
   "name": "knowbase",
   "category": "RAG",
-  "architecture": "hexagonal (ports & adapters): domain use-cases depend only on Protocol ports; adapters injected by a composition root",
-  "interface": "stdlib http.server JSON microservice (/health /adapters /ingest /ask /eval /compare /config) plus a typed Python client SDK",
-  "testing": "port contract test batteries executed against every adapter of every port, plus HTTP integration tests and a domain-purity fitness function",
+  "architecture": "hexagonal (ports & adapters): domain use-cases depend only on Protocol ports; adapters injected by a composition root; sqlite persistence behind a forward-migration runner",
+  "interface": "stdlib http.server JSON microservice under /api/v1 (ingest/ask/eval/compare/config/adapters) with unversioned /health, /ready and /metrics, plus a typed Python client SDK",
+  "testing": "port contract test batteries executed against every adapter of every port, plus HTTP integration, adversarial-input, concurrency and migration tests, and a domain-purity fitness function",
   "demo_cmd": "python run.py demo",
   "test_cmd": "python -m pytest tests -q",
   "entry_points": [
     "python run.py demo",
-    "python run.py serve --port 8080 --index hybrid_rrf",
-    "python -m knowbase serve --host 127.0.0.1 --port 0",
+    "python run.py serve --port 8080 --index hybrid_rrf --store sqlite",
+    "python -m knowbase serve --host 127.0.0.1 --port 0   (after pip install -e .)",
     "knowbase.app.running_service / knowbase.app.KbClient (typed client SDK)",
     "knowbase.app.build_container (composition root)"
-  ]
+  ],
+  "lint_cmd": "python -m ruff check .",
+  "typecheck_cmd": "python -m mypy"
 }

@@ -4,7 +4,7 @@ The package lives under ``src/`` and is normally installed (``pip install -e .``
 puts ``src`` on ``sys.path`` so the service and the demo also run straight from a clone::
 
     python run.py demo
-    python run.py serve --port 8080 --index bm25
+    python run.py serve --port 8080 --index hybrid_rrf --store sqlite
 
 It contains no application logic; everything is delegated to ``knowbase.__main__``.
 """
