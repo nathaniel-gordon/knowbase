@@ -95,6 +95,28 @@ class Answer:
 
 
 @dataclass(frozen=True, slots=True)
+class CorpusSnapshot:
+    """One ingested corpus, complete enough to rebuild every index without the source.
+
+    This is what the CorpusStorePort persists. Holding the passages rather than the documents
+    means a restart restores the *exact* passage ordinals that existing citations refer to,
+    which re-chunking could not guarantee if the chunker ever changed.
+    """
+
+    fingerprint: str
+    source: str
+    documents: int
+    started_at: str
+    passages: tuple[Passage, ...]
+
+    def __post_init__(self) -> None:
+        if not self.fingerprint:
+            raise ValueError("CorpusSnapshot.fingerprint must be non-empty")
+        if not self.passages:
+            raise ValueError("CorpusSnapshot must hold at least one passage")
+
+
+@dataclass(frozen=True, slots=True)
 class IngestReport:
     """Outcome of IngestCorpus -- what went in, and into which adapters."""
 
@@ -104,6 +126,7 @@ class IngestReport:
     passages: int
     started_at: str
     elapsed_ms: float
+    fingerprint: str = ""
 
 
 @dataclass(frozen=True, slots=True)

@@ -11,7 +11,7 @@ from typing import Sequence
 from ...domain.errors import EmptyCorpusError, IndexNotBuiltError
 from ...domain.model import Passage, RetrievalHit
 from ...domain.text import tokenize
-from ._lexical import BM25
+from ._lexical import BM25, LexicalIndexState
 
 
 class Bm25Index:
@@ -21,26 +21,29 @@ class Bm25Index:
 
     def __init__(self, k1: float = 1.5, b: float = 0.75) -> None:
         self._k1, self._b = k1, b
-        self._passages: list[Passage] = []
-        self._bm25: BM25 | None = None
+        self._state: LexicalIndexState | None = None
 
     def size(self) -> int:
-        return len(self._passages)
+        state = self._state
+        return 0 if state is None else len(state.passages)
 
     def build(self, passages: Sequence[Passage]) -> None:
         if not passages:
             raise EmptyCorpusError("cannot index an empty passage list")
-        self._passages = list(passages)
-        self._bm25 = BM25([tokenize(p.text) for p in self._passages], k1=self._k1, b=self._b)
+        held = tuple(passages)
+        self._state = LexicalIndexState(
+            passages=held,
+            bm25=BM25([tokenize(p.text) for p in held], k1=self._k1, b=self._b))
 
     def search(self, query: str, k: int = 5) -> list[RetrievalHit]:
-        if self._bm25 is None:
+        state = self._state
+        if state is None or state.bm25 is None:
             raise IndexNotBuiltError("Bm25Index.search called before build")
         if k <= 0:
             raise ValueError("k must be positive")
-        scores = self._bm25.scores(tokenize(query))
+        scores = state.bm25.scores(tokenize(query))
         # Index as tie-break keeps the ordering total and therefore reproducible.
         ranked = sorted(((i, float(s)) for i, s in enumerate(scores) if s > 0),
                         key=lambda kv: (-kv[1], kv[0]))[:k]
-        return [RetrievalHit(passage=self._passages[i], score=round(s, 6), rank=r)
+        return [RetrievalHit(passage=state.passages[i], score=round(s, 6), rank=r)
                 for r, (i, s) in enumerate(ranked, start=1)]

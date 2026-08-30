@@ -86,8 +86,11 @@ def test_domain_source_never_mentions_a_driver(module: Path):
 def test_ports_declare_protocols_and_import_no_adapter(module: Path):
     offenders = _imported_roots(module) - {"__future__", "typing", "dataclasses"}
     assert not offenders, f"{module.name} imports {sorted(offenders)}"
-    assert _relative_targets(module) <= {"", "domain", "cache", "clock", "document_source",
-                                         "generator", "index"}
+    # A port may re-export its siblings and reach the domain for entity types. Anything else
+    # -- an adapter, the app layer -- would invert the arrow. The sibling list is read off the
+    # package so adding a port needs no edit here, but adding a dependency still fails.
+    siblings = {p.stem for p in _module_files(PORTS)}
+    assert _relative_targets(module) <= {"", "domain"} | siblings
 
 
 def test_ports_are_protocols_not_base_classes():

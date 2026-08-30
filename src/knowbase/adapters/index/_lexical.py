@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
@@ -17,7 +18,24 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from ...domain.errors import IndexBuildFailed
+from ...domain.model import Passage
 from ...domain.text import tokenize
+
+
+@dataclass(frozen=True, slots=True)
+class LexicalIndexState:
+    """Everything an index adapter needs to answer a search, as one immutable value.
+
+    The adapters used to assign the passage list and each scorer in sequence, so a thread
+    calling ``search`` during a re-ingest could read new passages against an old matrix and
+    return a hit pointing at the wrong text. Building a state object and publishing it with a
+    single attribute assignment makes the swap atomic: a reader sees either the whole old
+    corpus or the whole new one.
+    """
+
+    passages: tuple[Passage, ...]
+    bm25: "BM25 | None" = None
+    tfidf: "TfidfCosine | None" = None
 
 
 class BM25:

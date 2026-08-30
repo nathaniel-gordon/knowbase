@@ -18,6 +18,8 @@ from .generator.extractive import ExtractiveGenerator
 from .index.bm25_only import Bm25Index
 from .index.hybrid_rrf import HybridRrfIndex
 from .index.tfidf_only import TfidfIndex
+from .store.memory import InMemoryCorpusStore
+from .store.sqlite import SqliteCorpusStore
 from .source.filesystem import FilesystemDocumentSource
 from .source.memory import InMemoryDocumentSource
 from .source.zip_archive import ZipDocumentSource
@@ -39,6 +41,11 @@ CACHE_ADAPTERS: dict[str, type] = {
     SqliteCache.name: SqliteCache,
 }
 
+STORE_ADAPTERS: dict[str, type] = {
+    InMemoryCorpusStore.name: InMemoryCorpusStore,
+    SqliteCorpusStore.name: SqliteCorpusStore,
+}
+
 CLOCK_ADAPTERS: dict[str, type] = {
     SystemClock.name: SystemClock,
     FrozenClock.name: FrozenClock,
@@ -49,6 +56,7 @@ GENERATOR_ADAPTERS: tuple[str, ...] = (ExtractiveGenerator.name, ClaudeGenerator
 __all__ = [
     "Bm25Index", "CACHE_ADAPTERS", "CLOCK_ADAPTERS", "ClaudeGenerator", "ExtractiveGenerator",
     "FilesystemDocumentSource", "FrozenClock", "GENERATOR_ADAPTERS", "HybridRrfIndex",
-    "INDEX_ADAPTERS", "InMemoryCache", "InMemoryDocumentSource", "SOURCE_ADAPTERS",
-    "SqliteCache", "SystemClock", "TfidfIndex", "ZipDocumentSource", "anthropic_completion",
+    "INDEX_ADAPTERS", "InMemoryCache", "InMemoryCorpusStore", "InMemoryDocumentSource",
+    "SOURCE_ADAPTERS", "STORE_ADAPTERS", "SqliteCache", "SqliteCorpusStore", "SystemClock",
+    "TfidfIndex", "ZipDocumentSource", "anthropic_completion",
 ]

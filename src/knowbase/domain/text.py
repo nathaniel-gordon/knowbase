@@ -9,7 +9,9 @@ transparent and testable without any fixture.
 """
 from __future__ import annotations
 
+import hashlib
 import re
+from typing import Sequence
 
 from .model import Document, Passage
 
@@ -99,3 +101,21 @@ def title_of(text: str, fallback: str) -> str:
         if line:
             return line.lstrip("#").strip() or fallback
     return fallback
+
+
+def corpus_fingerprint(passages: Sequence[Passage]) -> str:
+    """A stable identity for one ingested corpus.
+
+    The answer cache is keyed partly on this. Without it a cached answer computed over corpus
+    A could be served while corpus B is loaded -- the reply would carry A's prose and, because
+    citations are resolved against today's retrieval, no citations at all. Hashing the ordered
+    passage ids *and* their text means both a different corpus and an edited document produce
+    a different key.
+    """
+    digest = hashlib.sha256()
+    for passage in passages:
+        digest.update(passage.passage_id.encode("utf-8"))
+        digest.update(b"\x00")
+        digest.update(passage.text.encode("utf-8"))
+        digest.update(b"\x1e")
+    return digest.hexdigest()[:32]
