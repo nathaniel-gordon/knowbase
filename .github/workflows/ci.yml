@@ -34,7 +34,7 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: pytest
-        run: python -m pytest tests -q
+        run: python -m pytest tests -q --cov=knowbase --cov-report=term --cov-fail-under=85
 
   lint:
     runs-on: ubuntu-latest
@@ -56,3 +56,30 @@ jobs:
 
       - name: mypy
         run: python -m mypy
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build image
+        run: docker build -t knowbase:ci .
+
+      # The service must refuse an exposed bind without a token; a container that starts
+      # here is a regression.
+      - name: refuses to serve without KB_API_TOKEN
+        run: |
+          if docker run --rm knowbase:ci; then
+            echo "started without a token" && exit 1
+          fi
+
+      - name: comes up healthy with a token
+        run: |
+          docker run -d --name smoke -e KB_API_TOKEN=ci-smoke-token-0123456789 knowbase:ci
+          for i in $(seq 1 15); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' smoke)
+            [ "$status" = healthy ] && exit 0
+            sleep 2
+          done
+          docker logs smoke
+          exit 1
