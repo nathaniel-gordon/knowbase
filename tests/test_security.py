@@ -192,7 +192,13 @@ def test_an_oversized_body_is_refused_before_it_is_parsed():
 
 
 def test_a_chunked_body_is_refused_rather_than_read_as_empty(client):
-    """It used to be silently processed as {}, which is a request nobody sent."""
+    """It used to be silently processed as {}, which is a request nobody sent.
+
+    Deliberately sends no chunk data: the refusal is on the Transfer-Encoding header alone,
+    and writing chunks after it races the server's close (the RST can discard the buffered
+    400 on Windows). The Connection: close assertion is what proves unsent chunks could
+    never be parsed as a next request.
+    """
     host, _, port = client.base_url.removeprefix("http://").partition(":")
     conn = http.client.HTTPConnection(host, int(port), timeout=10)
     try:
@@ -200,13 +206,14 @@ def test_a_chunked_body_is_refused_rather_than_read_as_empty(client):
         conn.putheader("Content-Type", "application/json")
         conn.putheader("Transfer-Encoding", "chunked")
         conn.endheaders()
-        conn.send(b"9\r\n{\"q\": 1}\r\n0\r\n\r\n")
         response = conn.getresponse()
         body = json.loads(response.read())
+        closed = response.headers.get("Connection")
     finally:
         conn.close()
     assert response.status == 400
     assert body["error"]["code"] == "invalid_request"
+    assert closed == "close", "whatever the client was about to send must not be re-parsed"
 
 
 def test_a_lying_content_length_is_refused(client):
