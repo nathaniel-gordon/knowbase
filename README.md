@@ -172,6 +172,29 @@ nothing, and `/health` says which one is bound.
 
 ---
 
+## Deployment
+
+Nothing is deployed anywhere. What exists is a container image that builds and runs locally:
+
+```bash
+docker build -t knowbase .
+docker run -d -p 8080:8080 -e KB_API_TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(32))") \
+  -v ./corpus:/data/corpus knowbase
+```
+
+Two stages, non-root, sqlite under `/data`, and a `HEALTHCHECK` against `/health`. The image
+refuses to start without `KB_API_TOKEN`, because the service refuses to bind `0.0.0.0`
+without one — there is no unauthenticated mode to ship by accident, and CI checks that the
+refusal still happens. On the machine this was written on, the built container was probed
+through ingest, ask and `/metrics` and reached `healthy`; that is the full extent of its
+operational record.
+
+[docs/deployment.md](docs/deployment.md) is the procedure for a single Docker host — the
+target this architecture honestly supports, and the reasoning for choosing it. The design
+decisions behind all of this are written down in [docs/adr/](docs/adr/).
+
+---
+
 ## Security
 
 - **Corpus roots.** `/ingest` takes a path from the caller. Every path is resolved (collapsing
@@ -242,10 +265,18 @@ lineage and these are its current numbers.
 
 ```
 $ python -m pytest tests -q
-409 passed, 1 skipped in 51.79s
+415 passed, 1 skipped in 55.04s
 ```
 
 The skip is the symlink-containment test, which needs a platform/user that can create symlinks.
+
+```
+$ python -m pytest tests -q --cov=knowbase --cov-report=term
+TOTAL                                            2210    108    95%
+```
+
+The uncovered 5% is mostly the live-API branch of the Claude adapter (see Limitations) and
+error paths for conditions the suite cannot provoke on this machine. CI fails under 85%.
 
 ```
 $ python run.py demo
@@ -290,10 +321,11 @@ put in front of users.
   cites a neighbouring one on the same topic can still pass the checks.
 - **Authentication is a single shared bearer token.** No users, no roles, no rotation, no rate
   limiting.
-- **No deployment exists.** No container image, no hosted instance, no uptime to report. The
-  GitHub Actions workflow in `.github/workflows/ci.yml` runs pytest, ruff and mypy, but it has
-  never run on a runner — nothing has been pushed from here, so there is no green badge to
-  point at and the matrix beyond the local interpreter is untested.
+- **No deployment exists.** No hosted instance, no registry image, no uptime to report. The
+  Dockerfile builds and the resulting container was probed on this machine (see Deployment);
+  that is the entire operational history. The GitHub Actions workflow has never run on a
+  runner — nothing has been pushed from here, so there is no green badge to point at and the
+  matrix beyond the local interpreter is untested.
 - **`/config` mutates process-wide state.** It is a demonstration of the ports seam, not a
   multi-tenant control plane.
 
@@ -303,6 +335,9 @@ put in front of users.
 
 ```
 run.py                        bootstrap launcher (adds src/ to sys.path)
+Dockerfile                    two-stage service image, non-root, healthchecked
+docs/deployment.md            single-docker-host procedure; no deployment currently exists
+docs/adr/                     the five recorded design decisions
 src/knowbase/domain/          entities, pure text services, four use-cases, error taxonomy
 src/knowbase/ports/           six typing.Protocol ports
 src/knowbase/adapters/        fourteen adapters + the sqlite schema and migration runner
@@ -312,6 +347,13 @@ tests/contracts/              technology-free contract batteries, one per port
 tests/                        adapter suites, HTTP integration, security, concurrency,
                               migrations, evaluation, and the domain-purity fitness function
 ```
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the test suite, the architecture rule the
+purity test enforces, and what a new adapter needs. Security reports go through
+[SECURITY.md](SECURITY.md), not public issues. This is a spare-time reference
+implementation; issues and patches are welcome, response times are best-effort.
 
 ## License
 
