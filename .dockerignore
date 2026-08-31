@@ -1,0 +1,9 @@
+# The image needs pyproject.toml, README.md, LICENSE and src/ - keep everything else out
+# so a local sqlite file or .env can never end up in a layer.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!src
+
+src/**/__pycache__
