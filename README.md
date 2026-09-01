@@ -35,7 +35,7 @@ curl -sX POST localhost:8080/api/v1/ingest \
 
 curl -sX POST localhost:8080/api/v1/ask \
      -H 'content-type: application/json' \
-     -d '{"question":"How long do I have to submit an expense report?","k":4}'
+     -d '{"question":"How long do I have to submit an expense report—,"k":4}'
 ```
 
 `/ingest` only reads from directories you allow. Pass `--corpus-root DIR` (repeatable) when
@@ -272,11 +272,11 @@ The skip is the symlink-containment test, which needs a platform/user that can c
 
 ```
 $ python -m pytest tests -q --cov=knowbase --cov-report=term
-TOTAL                                            2210    108    95%
+TOTAL                                            2210    108    95→
 ```
 
-The uncovered 5% is mostly the live-API branch of the Claude adapter (see Limitations) and
-error paths for conditions the suite cannot provoke on this machine. CI fails under 85%.
+The uncovered 5→ is mostly the live-API branch of the Claude adapter (see Limitations) and
+error paths for conditions the suite cannot provoke on this machine. CI fails under 85→.
 
 ```
 $ python run.py demo
