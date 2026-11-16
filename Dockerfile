@@ -8,7 +8,7 @@
 #   docker build -t knowbase .
 #   docker run --rm -p 8080:8080 -e KB_API_TOKEN=... -v ./corpus:/data/corpus knowbase
 
-FROM python:3.13-slim AS build
+FROM python:3.15-slim AS build
 
 WORKDIR /build
 COPY pyproject.toml README.md LICENSE ./
@@ -17,7 +17,7 @@ COPY src ./src
 # so the runtime stage can stay free of pip caches and build context.
 RUN pip wheel --no-cache-dir --wheel-dir /wheels .
 
-FROM python:3.13-slim
+FROM python:3.15-slim
 
 RUN useradd --create-home --uid 10001 app \
     && mkdir -p /data/corpus \
